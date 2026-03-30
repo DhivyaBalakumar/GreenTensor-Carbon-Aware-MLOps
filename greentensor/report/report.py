@@ -2,11 +2,7 @@
 from greentensor.report.metrics import RunMetrics
 
 def generate_report(duration, emissions_kg, energy_kwh,
-                    idle_seconds=0.0, baseline=None):
-    """
-    Generate a human-readable GreenTensor report.
-    If a baseline RunMetrics is provided, savings are computed against real data.
-    """
+                    idle_seconds=0.0, baseline=None, alerts=None):
     lines = [
         "",
         "  +======================================+",
@@ -25,7 +21,6 @@ def generate_report(duration, emissions_kg, energy_kwh,
         emissions_saved = baseline.emissions_kg - emissions_kg
         reduction_pct = (energy_saved / baseline.energy_kwh * 100) if baseline.energy_kwh else 0.0
         time_saved = baseline.duration_s - duration
-
         lines += [
             "",
             "  -- Savings vs Baseline --",
@@ -34,6 +29,16 @@ def generate_report(duration, emissions_kg, energy_kwh,
             "  Emissions Saved  : {:.6f} kg CO2".format(emissions_saved),
             "  Time Saved       : {:.2f} s".format(time_saved),
         ]
+
+    if alerts:
+        lines += [
+            "",
+            "  -- Security Alerts ({}) --".format(len(alerts)),
+        ]
+        for a in alerts:
+            lines.append("  [{}] {}".format(a.alert_type.upper(), a.message))
+    else:
+        lines.append("  Security         : No threats detected")
 
     lines.append("  ======================================\n")
     return "\n".join(lines)

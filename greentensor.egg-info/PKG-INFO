@@ -1,11 +1,11 @@
 Metadata-Version: 2.4
 Name: greentensor
-Version: 0.1.0
-Summary: Energy-efficient middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, reports savings.
-Author: GreenTensor
+Version: 0.2.0
+Summary: Energy-efficient, security-aware middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, detects malware via anomalous energy patterns.
+Author-email: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
 License-Expression: MIT
-Project-URL: Homepage, https://github.com/YOUR_USERNAME/greentensor
-Project-URL: Issues, https://github.com/YOUR_USERNAME/greentensor/issues
+Project-URL: Homepage, https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/
+Project-URL: Issues, https://github.com/DhivyaBalakumar/GreenTensor/issues
 Keywords: green ai,carbon,energy,pytorch,sustainability,mlops
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent

@@ -3,6 +3,7 @@ import functools
 from greentensor.core.tracker import Tracker
 from greentensor.optimizers.gpu_optimizer import GPUOptimizer
 from greentensor.optimizers.idle_optimizer import IdleOptimizer
+from greentensor.security.anomaly_detector import AnomalyDetector, AnomalyDetectorConfig
 from greentensor.report.report import generate_report
 from greentensor.report.metrics import RunMetrics
 from greentensor.utils.config import Config
@@ -10,7 +11,17 @@ from greentensor.utils.logger import logger
 
 
 class GreenTensor:
-    def __init__(self, config=None, baseline=None, verbose=True):
+    """
+    Context manager that wraps any ML workload with:
+      - GPU optimizations (cuDNN benchmark + mixed precision)
+      - Idle GPU detection and throttling
+      - Real energy + carbon tracking (CodeCarbon or nvidia-smi fallback)
+      - Carbon-based malware/anomaly detection
+      - A detailed report on exit
+    """
+
+    def __init__(self, config=None, baseline=None, verbose=True,
+                 security=True, security_config=None, on_alert=None):
         self.config = config or Config()
         self.baseline = baseline
         self.verbose = verbose
@@ -19,10 +30,19 @@ class GreenTensor:
         self.idle_optimizer = IdleOptimizer(self.config)
         self.metrics = None
 
+        # Security / anomaly detection
+        self._security_enabled = security
+        self.anomaly_detector = AnomalyDetector(
+            config=security_config or AnomalyDetectorConfig(),
+            on_alert=on_alert,
+        ) if security else None
+
     def __enter__(self):
         logger.info("GreenTensor session starting...")
         self.gpu_optimizer.apply()
         self.idle_optimizer.apply()
+        if self._security_enabled:
+            self.anomaly_detector.start()
         self.tracker.start()
         self._start = time.perf_counter()
         return self
@@ -32,6 +52,7 @@ class GreenTensor:
         emissions_kg, energy_kwh = self.tracker.stop()
         self.idle_optimizer.revert()
         self.gpu_optimizer.revert()
+        alerts = self.anomaly_detector.stop() if self._security_enabled else []
 
         self.metrics = RunMetrics(
             duration_s=duration,
@@ -47,6 +68,7 @@ class GreenTensor:
                 energy_kwh=energy_kwh,
                 idle_seconds=self.idle_optimizer.idle_seconds,
                 baseline=self.baseline,
+                alerts=alerts,
             )
             print(report)
 
@@ -54,6 +76,12 @@ class GreenTensor:
 
     def mixed_precision(self):
         return self.gpu_optimizer.mixed_precision()
+
+    @property
+    def security_alerts(self):
+        if self.anomaly_detector:
+            return self.anomaly_detector.alerts
+        return []
 
     @staticmethod
     def profile(func):

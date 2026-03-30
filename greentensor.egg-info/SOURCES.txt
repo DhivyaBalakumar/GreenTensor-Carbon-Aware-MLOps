@@ -16,8 +16,11 @@ greentensor/optimizers/gpu_optimizer.py
 greentensor/optimizers/idle_optimizer.py
 greentensor/report/metrics.py
 greentensor/report/report.py
+greentensor/security/__init__.py
+greentensor/security/anomaly_detector.py
 greentensor/utils/config.py
 greentensor/utils/logger.py
+tests/test_anomaly_detector.py
 tests/test_batch_optimizer.py
 tests/test_config.py
 tests/test_context.py

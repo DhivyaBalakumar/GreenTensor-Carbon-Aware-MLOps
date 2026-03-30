@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.1.0"
-description = "Energy-efficient middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, reports savings."
+version = "0.2.0"
+description = "Energy-efficient, security-aware middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, detects malware via anomalous energy patterns."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
