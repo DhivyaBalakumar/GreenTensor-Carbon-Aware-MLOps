@@ -1,0 +1,119 @@
+# GreenTensor
+
+**Energy-efficient middleware for PyTorch ML workloads.**
+
+GreenTensor wraps your training loop with one line of code and gives you:
+- Real carbon emissions and energy tracking (via CodeCarbon)
+- Automatic GPU optimizations (cuDNN benchmark, mixed precision)
+- Idle GPU detection to reduce wasted energy
+- A detailed savings report comparing against your baseline
+
+---
+
+## Install
+
+```bash
+pip install greentensor
+```
+
+---
+
+## Quickstart
+
+```python
+from greentensor import GreenTensor
+
+with GreenTensor() as gt:
+    with gt.mixed_precision():
+        train()  # your existing training code, unchanged
+```
+
+Output:
+```
+  +======================================+
+  |        GreenTensor Report            |
+  +======================================+
+  Runtime          : 12.34 s
+  Energy Used      : 0.000412 kWh
+  CO2 Emissions    : 0.000096 kg
+  ======================================
+```
+
+---
+
+## Compare against a baseline
+
+```python
+import pickle
+from greentensor import GreenTensor
+from greentensor.core.tracker import Tracker
+from greentensor.report.metrics import RunMetrics
+import time
+
+# 1. Run baseline (no optimizations)
+tracker = Tracker()
+tracker.start()
+t0 = time.perf_counter()
+train()
+duration = time.perf_counter() - t0
+emissions_kg, energy_kwh = tracker.stop()
+baseline = RunMetrics(duration_s=duration, energy_kwh=energy_kwh, emissions_kg=emissions_kg)
+
+# 2. Run optimized — report shows real savings
+with GreenTensor(baseline=baseline) as gt:
+    with gt.mixed_precision():
+        train()
+```
+
+---
+
+## Batch size optimizer
+
+```python
+from greentensor import optimize_batch_size
+
+batch_size = optimize_batch_size(32)  # auto-scales based on available GPU memory
+```
+
+---
+
+## Dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+Enter baseline and optimized metrics manually, or upload `.pkl` files saved from your runs.
+
+---
+
+## Configuration
+
+```python
+from greentensor import GreenTensor, Config
+
+config = Config(
+    enable_cudnn_benchmark=True,
+    enable_mixed_precision=True,
+    idle_threshold_pct=10.0,   # GPU util % below which idle is detected
+    max_batch_size=512,
+)
+
+with GreenTensor(config=config) as gt:
+    train()
+```
+
+---
+
+## Run tests
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
+---
+
+## License
+
+MIT

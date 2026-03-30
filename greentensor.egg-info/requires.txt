@@ -1,0 +1,5 @@
+torch
+numpy
+codecarbon
+psutil
+streamlit

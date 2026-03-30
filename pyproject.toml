@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "greentensor"
+version = "0.1.0"
+description = "Energy-efficient middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, reports savings."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
+keywords = ["green ai", "carbon", "energy", "pytorch", "sustainability", "mlops"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+]
+requires-python = ">=3.9"
+dependencies = ["torch", "numpy", "codecarbon", "psutil", "streamlit"]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/greentensor"
+Issues = "https://github.com/YOUR_USERNAME/greentensor/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["greentensor*"]
+exclude = ["tests*"]
