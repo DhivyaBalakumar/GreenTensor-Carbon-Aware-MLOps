@@ -21,8 +21,8 @@ requires-python = ">=3.9"
 dependencies = ["torch", "numpy", "codecarbon", "psutil", "streamlit"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/greentensor"
-Issues = "https://github.com/YOUR_USERNAME/greentensor/issues"
+Homepage = "https://github.com/DhivyaBalakumar/GreenTensor"
+Issues = "https://github.com/DhivyaBalakumar/GreenTensor/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
