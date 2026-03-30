@@ -11,7 +11,7 @@ def test_report_no_baseline():
 def test_report_with_baseline():
     baseline = RunMetrics(duration_s=10.0, energy_kwh=0.002, emissions_kg=0.001)
     r = generate_report(7.0, 0.0006, 0.0013, baseline=baseline)
-    assert "Savings vs Baseline" in r
+    assert "Efficiency vs Baseline" in r
     assert "reduction" in r
 
 def test_report_with_idle():

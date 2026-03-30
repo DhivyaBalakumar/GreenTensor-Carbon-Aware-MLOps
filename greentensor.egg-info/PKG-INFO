@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: greentensor
-Version: 0.2.0
-Summary: Energy-efficient, security-aware middleware for PyTorch ML workloads — tracks carbon, optimizes GPU, detects malware via anomalous energy patterns.
+Version: 0.3.0
+Summary: Energy-efficient, security-aware middleware for PyTorch ML workloads — carbon tracking, GPU optimization, and malware detection via alibi-detect and LLM Guard.
 Author-email: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
 License-Expression: MIT
 Project-URL: Homepage, https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/
@@ -20,6 +20,12 @@ Requires-Dist: numpy
 Requires-Dist: codecarbon
 Requires-Dist: psutil
 Requires-Dist: streamlit
+Provides-Extra: security
+Requires-Dist: alibi-detect; extra == "security"
+Requires-Dist: llm-guard; extra == "security"
+Provides-Extra: all
+Requires-Dist: alibi-detect; extra == "all"
+Requires-Dist: llm-guard; extra == "all"
 Dynamic: license-file
 
 # GreenTensor

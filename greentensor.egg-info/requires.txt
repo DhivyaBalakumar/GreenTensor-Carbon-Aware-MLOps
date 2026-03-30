@@ -3,3 +3,11 @@ numpy
 codecarbon
 psutil
 streamlit
+
+[all]
+alibi-detect
+llm-guard
+
+[security]
+alibi-detect
+llm-guard
