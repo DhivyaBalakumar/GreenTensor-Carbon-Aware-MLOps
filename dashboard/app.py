@@ -121,18 +121,43 @@ if mode == "Manual Input":
 
 else:
     with st.expander("Upload metrics files", expanded=True):
+        st.markdown('<div class="section-title">How to get your files</div>', unsafe_allow_html=True)
+
         st.markdown("""
-**What files are accepted and what do they contain?**
+GreenTensor automatically saves measurement files after every training run.
+You do not create these files manually — they are generated for you.
+Follow these three steps:
+        """)
 
-GreenTensor produces two types of files after a training run:
+        st.markdown("---")
+        st.markdown("**Step 1 — Run your training without GreenTensor (baseline)**")
+        st.markdown("""
+Open a terminal in your project folder and run:
+```bash
+python examples/train_baseline.py
+```
+This runs your training loop with no optimizations and saves a file called
+`baseline_metrics.pkl` in the same folder. That file records how much energy,
+time, and CO2 your training consumed without any optimization.
+        """)
 
-| File | Format | How to get it |
-|------|--------|---------------|
-| `baseline_metrics.pkl` | Binary (pickle) | Run `python examples/train_baseline.py` |
-| `optimized_metrics.pkl` | Binary (pickle) | Run `python examples/train_optimized.py` |
+        st.markdown("**Step 2 — Run your training with GreenTensor (optimized)**")
+        st.markdown("""
+```bash
+python examples/train_optimized.py
+```
+This runs the same training loop wrapped in GreenTensor — GPU optimizations on,
+carbon tracking active. It saves `optimized_metrics.pkl` in the same folder.
+        """)
 
-You can also create a `.json` file manually with these exact fields:
+        st.markdown("**Step 3 — Upload both files below**")
+        st.markdown("""
+Upload `baseline_metrics.pkl` on the left and `optimized_metrics.pkl` on the right.
+The dashboard will read both files, extract the measurements, calculate the savings,
+and show you the comparison charts.
 
+If you do not have `.pkl` files yet, you can also upload a `.json` file you create
+manually. It must contain these four fields:
 ```json
 {
     "duration_s": 45.2,
@@ -141,19 +166,12 @@ You can also create a `.json` file manually with these exact fields:
     "idle_seconds": 2.1
 }
 ```
-
-**Field definitions:**
-- `duration_s` — total wall-clock time of the training run in seconds
-- `energy_kwh` — energy consumed by the machine in kilowatt-hours (measured by CodeCarbon or nvidia-smi)
-- `emissions_kg` — CO2 equivalent emissions in kilograms based on your region's grid carbon intensity
-- `idle_seconds` — time the GPU spent idle during the run (tracked by GreenTensor's idle optimizer)
-
-**What happens when you upload:**
-1. The file is read and deserialized into a `RunMetrics` object
-2. The four numeric fields are extracted
-3. If both baseline and optimized are loaded, savings are calculated: energy saved, emissions reduced, time saved, and percentage reduction
-4. Charts and metrics are rendered from those values
+- `duration_s` — how long the training run took in seconds
+- `energy_kwh` — energy consumed in kilowatt-hours
+- `emissions_kg` — CO2 emissions in kilograms
+- `idle_seconds` — time the GPU spent idle (put 0 if unknown)
         """)
+        st.markdown("---")
 
         col1, col2 = st.columns(2)
         with col1:
