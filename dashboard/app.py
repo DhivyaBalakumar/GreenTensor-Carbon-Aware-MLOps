@@ -3,7 +3,9 @@ import pickle
 import json
 import os
 import pandas as pd
-from greentensor.report.metrics import RunMetrics, calculate_savings
+from greentensor.report.metrics import (
+    RunMetrics, calculate_savings, DatacenterConfig, PUE_PRESETS
+)
 
 st.set_page_config(
     page_title="GreenTensor Dashboard",
@@ -87,7 +89,7 @@ with st.sidebar:
     st.markdown("Carbon-aware MLOps middleware")
     st.markdown("---")
     st.markdown("**Navigation**")
-    page = st.radio("", ["Overview", "Energy Analysis", "Security Report", "How It Works"], label_visibility="collapsed")
+    page = st.radio("", ["Overview", "Energy Analysis", "Datacenter Impact", "Security Report", "How It Works"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**Data Source**")
     mode = st.radio("", ["Manual Input", "Upload File"], label_visibility="collapsed")
@@ -293,6 +295,138 @@ elif page == "Energy Analysis":
                 "Energy (kWh)": [baseline_metrics.energy_kwh]
             }, index=["Baseline"]))
             st.info("Upload optimized metrics to see comparison charts.")
+
+
+elif page == "Datacenter Impact":
+    st.markdown('<div class="section-title">Datacenter Impact</div>', unsafe_allow_html=True)
+    st.markdown("""
+When your training runs inside a datacenter — cloud VM, HPC cluster, or on-premise DC —
+the actual energy consumed is higher than what your GPU reports. Cooling systems, UPS,
+lighting, and networking all add overhead. GreenTensor accounts for this using two factors:
+
+**PUE (Power Usage Effectiveness)** — the ratio of total DC power to IT equipment power.
+A PUE of 1.5 means for every 1W your GPU uses, the datacenter uses 1.5W in total.
+
+**Carbon intensity** — how much CO2 your region's electricity grid produces per kWh.
+A datacenter in Norway (hydro-heavy grid) has far lower emissions than one in Poland (coal-heavy).
+    """)
+
+    st.markdown("---")
+    st.markdown("**Configure your datacenter**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        preset_label = st.selectbox(
+            "DC type (sets PUE automatically)",
+            options=[
+                "local_workstation  — PUE 1.0 (no DC overhead)",
+                "hyperscale         — PUE 1.1 (Google / Microsoft / Meta)",
+                "cloud_average      — PUE 1.2 (AWS / GCP / Azure average)",
+                "enterprise_dc      — PUE 1.5 (typical on-premise DC)",
+                "legacy_dc          — PUE 1.8 (older / inefficient DC)",
+                "custom             — enter your own PUE",
+            ]
+        )
+        preset_key = preset_label.split()[0]
+        preset_pue = PUE_PRESETS.get(preset_key, 1.2)
+
+        if preset_key == "custom":
+            pue = st.number_input("Custom PUE", min_value=1.0, max_value=3.0, value=1.2, step=0.05)
+        else:
+            pue = preset_pue
+            st.info(f"PUE set to {pue}")
+
+        num_nodes = st.number_input(
+            "Number of training nodes",
+            min_value=1, max_value=1024, value=1, step=1,
+            help="For distributed training across multiple GPUs/machines. Single machine = 1."
+        )
+
+    with col2:
+        st.markdown("**Regional carbon intensity (kg CO2 per kWh)**")
+        st.markdown("""
+Find your value at [electricitymap.org](https://app.electricitymap.org)
+
+Common values:
+| Region | kg CO2 / kWh |
+|--------|-------------|
+| Norway (hydro) | 0.017 |
+| France (nuclear) | 0.056 |
+| UK average | 0.233 |
+| World average | 0.233 |
+| USA average | 0.386 |
+| Australia | 0.490 |
+| Poland (coal) | 0.635 |
+        """)
+        carbon_intensity = st.number_input(
+            "Carbon intensity (kg CO2 / kWh)",
+            min_value=0.0, max_value=2.0,
+            value=0.000233, format="%.6f",
+            help="World average is 0.000233. Use electricitymap.org for your DC region."
+        )
+        dc_name = st.text_input("Datacenter name (optional)", value="My DC")
+
+    dc_config = DatacenterConfig(
+        pue=pue,
+        carbon_intensity_kg_per_kwh=carbon_intensity,
+        num_nodes=int(num_nodes),
+        dc_name=dc_name or "custom",
+    )
+
+    st.markdown("---")
+
+    if not baseline_metrics:
+        st.info("No run data loaded. Go to the sidebar and load metrics first.")
+    else:
+        b_dc = baseline_metrics.apply_datacenter_config(dc_config)
+        o_dc = optimized_metrics.apply_datacenter_config(dc_config) if optimized_metrics else None
+
+        st.markdown("**Datacenter-adjusted energy for baseline run**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            metric_card("Raw GPU Energy", f"{baseline_metrics.energy_kwh:.6f} kWh")
+        with col2:
+            metric_card("PUE Multiplier", f"x {pue}")
+        with col3:
+            metric_card("Nodes", f"x {int(num_nodes)}")
+        with col4:
+            metric_card("Total DC Energy", f"{b_dc.energy_kwh_dc:.6f} kWh",
+                        delta=f"+{((b_dc.energy_kwh_dc / baseline_metrics.energy_kwh) - 1) * 100:.0f}% overhead",
+                        delta_good=False)
+
+        st.markdown(f"**Total DC CO2 emissions: {b_dc.emissions_kg_dc:.6f} kg**")
+        st.caption(f"Calculated as: {baseline_metrics.energy_kwh:.6f} kWh x PUE {pue} x {int(num_nodes)} nodes x {carbon_intensity:.6f} kg/kWh")
+
+        if o_dc:
+            st.markdown("---")
+            st.markdown("**Savings with datacenter overhead applied**")
+            savings_dc = calculate_savings(b_dc, o_dc, use_dc_adjusted=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                metric_card("DC Energy Reduction", f"{savings_dc['energy_reduction_pct']:.1f}%",
+                            delta="vs baseline", delta_good=True)
+            with col2:
+                metric_card("DC Energy Saved", f"{savings_dc['energy_saved_kwh']:.6f} kWh",
+                            delta_good=True)
+            with col3:
+                metric_card("DC CO2 Saved", f"{savings_dc['emissions_saved_kg']:.6f} kg",
+                            delta_good=True)
+
+            st.markdown("**DC-adjusted energy comparison**")
+            st.bar_chart(pd.DataFrame({
+                "DC Energy (kWh)": [b_dc.energy_kwh_dc, o_dc.energy_kwh_dc]
+            }, index=["Baseline (DC)", "Optimized (DC)"]))
+
+            st.markdown("**Raw vs DC-adjusted comparison**")
+            st.dataframe(pd.DataFrame([
+                {"Metric": "Baseline raw energy (kWh)",      "Value": baseline_metrics.energy_kwh},
+                {"Metric": "Baseline DC energy (kWh)",       "Value": b_dc.energy_kwh_dc},
+                {"Metric": "Optimized raw energy (kWh)",     "Value": optimized_metrics.energy_kwh},
+                {"Metric": "Optimized DC energy (kWh)",      "Value": o_dc.energy_kwh_dc},
+                {"Metric": "DC energy saved (kWh)",          "Value": savings_dc["energy_saved_kwh"]},
+                {"Metric": "DC CO2 saved (kg)",              "Value": savings_dc["emissions_saved_kg"]},
+                {"Metric": "Reduction (%)",                  "Value": f"{savings_dc['energy_reduction_pct']:.1f}%"},
+            ]).set_index("Metric"), use_container_width=True)
 
 
 elif page == "Security Report":
