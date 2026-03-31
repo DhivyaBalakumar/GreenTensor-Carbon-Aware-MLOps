@@ -5,6 +5,7 @@ from greentensor.core.tracker import Tracker
 from greentensor.optimizers.gpu_optimizer import GPUOptimizer
 from greentensor.optimizers.idle_optimizer import IdleOptimizer
 from greentensor.security.anomaly_detector import AnomalyDetector, AnomalyDetectorConfig
+from greentensor.security.digital_footprint import DigitalFootprintScanner
 from greentensor.report.report import generate_report
 from greentensor.report.metrics import RunMetrics
 from greentensor.utils.config import Config
@@ -14,7 +15,12 @@ from greentensor.utils.logger import logger
 class GreenTensor:
     def __init__(self, config=None, baseline=None, verbose=True,
                  security=True, security_config=None, on_alert=None,
-                 save_path="greentensor_metrics.pkl"):
+                 save_path="greentensor_metrics.pkl",
+                 stage="pre_deployment",
+                 scan_dependencies=True,
+                 monitor_network=True,
+                 monitor_processes=True,
+                 trusted_hosts=None):
         self.config = config or Config()
         self.baseline = baseline
         self.verbose = verbose
@@ -28,6 +34,14 @@ class GreenTensor:
             config=security_config or AnomalyDetectorConfig(),
             on_alert=on_alert,
         ) if security else None
+        self.footprint_scanner = DigitalFootprintScanner(
+            stage=stage,
+            on_event=on_alert,
+            monitor_network=monitor_network,
+            monitor_processes=monitor_processes,
+            trusted_hosts=trusted_hosts,
+        ) if security else None
+        self._scan_dependencies = scan_dependencies
 
     def __enter__(self):
         logger.info("GreenTensor session starting...")
@@ -35,6 +49,9 @@ class GreenTensor:
         self.idle_optimizer.apply()
         if self._security_enabled:
             self.anomaly_detector.start()
+            self.footprint_scanner.start()
+            if self._scan_dependencies:
+                self.footprint_scanner.scan_dependencies()
         self.tracker.start()
         self._start = time.perf_counter()
         return self
@@ -45,6 +62,7 @@ class GreenTensor:
         self.idle_optimizer.revert()
         self.gpu_optimizer.revert()
         alerts = self.anomaly_detector.stop() if self._security_enabled else []
+        footprint = self.footprint_scanner.stop() if self._security_enabled else None
 
         self.metrics = RunMetrics(
             duration_s=duration,
@@ -69,6 +87,7 @@ class GreenTensor:
                 idle_seconds=self.idle_optimizer.idle_seconds,
                 baseline=self.baseline,
                 alerts=alerts,
+                footprint=footprint,
             )
             print(report)
 
@@ -77,11 +96,37 @@ class GreenTensor:
     def mixed_precision(self):
         return self.gpu_optimizer.mixed_precision()
 
+    def register_model(self, path: str):
+        """Register a model file for tampering detection."""
+        if self.footprint_scanner:
+            self.footprint_scanner.register_model_file(path)
+
+    def verify_model(self, path: str = None):
+        """Verify registered model files have not been tampered with."""
+        if self.footprint_scanner:
+            return self.footprint_scanner.verify_model_files()
+        return []
+
+    def record_inference(self, latency_s: float, input_size: int = 0,
+                         confidence: float = None):
+        """Record an inference call for post-deployment anomaly detection."""
+        if self.footprint_scanner:
+            self.footprint_scanner.record_inference(latency_s, input_size, confidence)
+
     @property
     def security_alerts(self):
+        alerts = []
         if self.anomaly_detector:
-            return self.anomaly_detector.alerts
-        return []
+            alerts += self.anomaly_detector.alerts
+        if self.footprint_scanner:
+            alerts += [e for e in self.footprint_scanner.events]
+        return alerts
+
+    @property
+    def footprint_report(self):
+        if self.footprint_scanner:
+            return self.footprint_scanner.report
+        return None
 
     @staticmethod
     def profile(func):

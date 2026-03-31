@@ -1,20 +1,14 @@
 # -*- coding: utf-8 -*-
 import time
-from greentensor.report.metrics import RunMetrics
 
-_SEVERITY_ICON = {
-    "low": "[LOW]",
-    "medium": "[MED]",
-    "high": "[HIGH]",
-    "critical": "[CRIT]",
-}
+_SEV = {"low": "[LOW]", "medium": "[MED]", "high": "[HIGH]", "critical": "[CRIT]"}
 
 def generate_report(duration, emissions_kg, energy_kwh,
-                    idle_seconds=0.0, baseline=None, alerts=None):
+                    idle_seconds=0.0, baseline=None, alerts=None, footprint=None):
     lines = [
         "",
         "  +======================================+",
-        "  |        GreenTensor Report  v0.3.0    |",
+        "  |        GreenTensor Report  v0.4.0    |",
         "  +======================================+",
         "  Runtime          : {:.2f} s".format(duration),
         "  Energy Used      : {:.6f} kWh".format(energy_kwh),
@@ -38,36 +32,40 @@ def generate_report(duration, emissions_kg, energy_kwh,
             "  Time Saved       : {:.2f} s".format(time_saved),
         ]
 
-    # Security section
-    lines += ["", "  -- Security Report ------------------"]
+    lines += ["", "  -- Carbon Anomaly Detection ---------"]
     if not alerts:
-        lines.append("  Status           : CLEAN — No threats detected")
+        lines.append("  Status           : CLEAN")
     else:
-        critical = [a for a in alerts if a.severity == "critical"]
-        high     = [a for a in alerts if a.severity == "high"]
-        medium   = [a for a in alerts if a.severity == "medium"]
-        low      = [a for a in alerts if a.severity == "low"]
-
-        lines.append("  Status           : THREATS DETECTED")
-        lines.append("  Total Alerts     : {}  (critical={}, high={}, medium={}, low={})".format(
-            len(alerts), len(critical), len(high), len(medium), len(low)
-        ))
-        lines.append("")
-
+        lines.append("  Status           : {} alert(s) detected".format(len(alerts)))
         for a in alerts:
-            icon = _SEVERITY_ICON.get(a.severity, "[???]")
             ts = time.strftime("%H:%M:%S", time.localtime(a.timestamp))
-            lines.append("  {} [{}] [{}] {}".format(icon, ts, a.source, a.alert_type.upper()))
-            lines.append("       {}".format(a.message))
+            lines.append("  {} [{}] [{}] {}".format(
+                _SEV.get(a.severity, "[?]"), ts, a.source, a.message))
 
-        # Summary by type
-        types = {}
-        for a in alerts:
-            types[a.alert_type] = types.get(a.alert_type, 0) + 1
-        lines.append("")
-        lines.append("  Alert breakdown  : " + ", ".join(
-            "{}: {}".format(k, v) for k, v in types.items()
-        ))
+    lines += ["", "  -- Digital Footprint Report ---------"]
+    if not footprint or footprint.is_clean:
+        lines.append("  Status           : CLEAN -- No digital attack footprint detected")
+    else:
+        events = footprint.events
+        lines.append("  Status           : {} footprint event(s)".format(len(events)))
+        lines.append("  Stage            : {}".format(footprint.stage))
+        by_category = {}
+        for e in events:
+            by_category.setdefault(e.category, []).append(e)
+        for cat, evts in by_category.items():
+            lines.append("")
+            lines.append("  [{}]".format(cat.upper().replace("_", " ")))
+            for e in evts:
+                ts = time.strftime("%H:%M:%S", time.localtime(e.timestamp))
+                lines.append("  {} [{}] [MITRE:{}] {}".format(
+                    _SEV.get(e.severity, "[?]"), ts, e.mitre_technique, e.message))
+        if footprint.network_connections:
+            lines.append("")
+            lines.append("  Network connections: {}".format(
+                ", ".join(footprint.network_connections[:5])))
+        if footprint.child_processes:
+            lines.append("  Child processes: {}".format(
+                ", ".join(footprint.child_processes[:5])))
 
     lines.append("  ======================================\n")
     return "\n".join(lines)

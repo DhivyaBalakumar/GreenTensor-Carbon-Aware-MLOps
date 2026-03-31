@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.3.0"
-description = "Energy-efficient, security-aware middleware for PyTorch ML workloads — carbon tracking, GPU optimization, and malware detection via alibi-detect and LLM Guard."
+version = "0.4.0"
+description = "Energy-efficient, security-aware MLOps middleware — carbon tracking, GPU optimization, digital footprint attack detection across pre and post deployment."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
