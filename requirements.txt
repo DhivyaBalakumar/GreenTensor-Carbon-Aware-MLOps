@@ -1,6 +1,10 @@
-streamlit
+# Core
 torch
 numpy
 codecarbon
 psutil
+streamlit
 
+# Optional: Security stack (recommended)
+alibi-detect
+llm-guard
