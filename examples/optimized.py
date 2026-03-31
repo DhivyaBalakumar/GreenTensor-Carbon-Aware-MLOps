@@ -12,5 +12,5 @@ def train(gt: GreenTensor):
             y = torch.mm(x, x)
 
 if __name__ == "__main__":
-    with GreenTensor() as gt:
+    with GreenTensor(save_path="baseline_metrics.pkl") as gt:
         train(gt)

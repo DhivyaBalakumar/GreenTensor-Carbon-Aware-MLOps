@@ -1,4 +1,5 @@
 import time
+import pickle
 import functools
 from greentensor.core.tracker import Tracker
 from greentensor.optimizers.gpu_optimizer import GPUOptimizer
@@ -11,26 +12,17 @@ from greentensor.utils.logger import logger
 
 
 class GreenTensor:
-    """
-    Context manager that wraps any ML workload with:
-      - GPU optimizations (cuDNN benchmark + mixed precision)
-      - Idle GPU detection and throttling
-      - Real energy + carbon tracking (CodeCarbon or nvidia-smi fallback)
-      - Carbon-based malware/anomaly detection
-      - A detailed report on exit
-    """
-
     def __init__(self, config=None, baseline=None, verbose=True,
-                 security=True, security_config=None, on_alert=None):
+                 security=True, security_config=None, on_alert=None,
+                 save_path="greentensor_metrics.pkl"):
         self.config = config or Config()
         self.baseline = baseline
         self.verbose = verbose
+        self.save_path = save_path
         self.tracker = Tracker(self.config)
         self.gpu_optimizer = GPUOptimizer(self.config)
         self.idle_optimizer = IdleOptimizer(self.config)
         self.metrics = None
-
-        # Security / anomaly detection
         self._security_enabled = security
         self.anomaly_detector = AnomalyDetector(
             config=security_config or AnomalyDetectorConfig(),
@@ -60,6 +52,14 @@ class GreenTensor:
             emissions_kg=emissions_kg,
             idle_seconds=self.idle_optimizer.idle_seconds,
         )
+
+        if self.save_path:
+            try:
+                with open(self.save_path, "wb") as f:
+                    pickle.dump(self.metrics, f)
+                logger.info(f"Metrics saved to {self.save_path}")
+            except Exception as e:
+                logger.warning(f"Could not save metrics: {e}")
 
         if self.verbose:
             report = generate_report(

@@ -22,5 +22,5 @@ if __name__ == "__main__":
             baseline = pickle.load(f)
         print("Loaded baseline metrics for comparison.")
 
-    with GreenTensor(baseline=baseline) as gt:
+    with GreenTensor(baseline=baseline, save_path="optimized_metrics.pkl") as gt:
         train(gt)
