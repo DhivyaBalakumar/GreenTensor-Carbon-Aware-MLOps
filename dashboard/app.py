@@ -6,6 +6,8 @@ import pandas as pd
 from greentensor.report.metrics import (
     RunMetrics, calculate_savings, DatacenterConfig, PUE_PRESETS
 )
+from greentensor.report.esg import ESGReporter, ESGOrganization
+from greentensor.core.history import RunHistory
 
 st.set_page_config(
     page_title="GreenTensor Dashboard",
@@ -89,7 +91,7 @@ with st.sidebar:
     st.markdown("Carbon-aware MLOps middleware")
     st.markdown("---")
     st.markdown("**Navigation**")
-    page = st.radio("", ["Overview", "Energy Analysis", "Datacenter Impact", "Security Report", "How It Works"], label_visibility="collapsed")
+    page = st.radio("", ["Overview", "Energy Analysis", "Datacenter Impact", "ESG Report", "Run History", "Security Report", "How It Works"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**Data Source**")
     mode = st.radio("", ["Manual Input", "Upload File"], label_visibility="collapsed")
@@ -427,6 +429,169 @@ Common values:
                 {"Metric": "DC CO2 saved (kg)",              "Value": savings_dc["emissions_saved_kg"]},
                 {"Metric": "Reduction (%)",                  "Value": f"{savings_dc['energy_reduction_pct']:.1f}%"},
             ]).set_index("Metric"), use_container_width=True)
+
+
+elif page == "ESG Report":
+    st.markdown('<div class="section-title">ESG Report — Scope 2 Emissions</div>', unsafe_allow_html=True)
+    st.markdown("""
+This page generates a structured ESG report covering Scope 2 carbon emissions
+from your AI/ML workloads, aligned with GHG Protocol, SEC climate disclosure rules,
+and EU CSRD requirements.
+    """)
+
+    st.markdown("**Organization details**")
+    col1, col2 = st.columns(2)
+    with col1:
+        org_name = st.text_input("Organization name", value="My Organization")
+        reporting_period = st.text_input("Reporting period", value="FY2025")
+        region = st.text_input("Region", value="US-East")
+    with col2:
+        carbon_intensity = st.number_input("Grid carbon intensity (kg CO2/kWh)",
+                                           value=0.000233, format="%.6f")
+        reporting_standard = st.selectbox("Reporting standard", [
+            "GHG Protocol Scope 2",
+            "SEC Climate Disclosure Rules",
+            "EU CSRD",
+            "ISO 14064-1",
+        ])
+        contact = st.text_input("Contact email (optional)", value="")
+
+    st.markdown("---")
+    st.markdown("**Add runs to this report**")
+
+    history = RunHistory()
+    records = history.all()
+
+    if records:
+        st.markdown(f"Found {len(records)} run(s) in local history.")
+        df_hist = pd.DataFrame(records)
+        st.dataframe(df_hist[["datetime", "model_name", "stage",
+                               "energy_kwh", "emissions_kg", "duration_s"]],
+                     use_container_width=True, hide_index=True)
+    elif baseline_metrics:
+        st.info("No run history file found. Using currently loaded metrics.")
+    else:
+        st.info("No run data available. Load metrics or run training scripts first.")
+
+    if st.button("Generate ESG Report", type="primary"):
+        org = ESGOrganization(
+            name=org_name,
+            reporting_period=reporting_period,
+            region=region,
+            carbon_intensity_kg_per_kwh=carbon_intensity,
+            reporting_standard=reporting_standard,
+            contact_email=contact,
+        )
+        reporter = ESGReporter(org)
+
+        # Add from history
+        for r in records:
+            from greentensor.report.esg import ESGRunRecord
+            reporter._runs.append(ESGRunRecord(
+                run_id=r.get("datetime", ""),
+                timestamp=r.get("timestamp", 0),
+                model_name=r.get("model_name", "unknown"),
+                stage=r.get("stage", "training"),
+                duration_s=r.get("duration_s", 0),
+                energy_kwh=r.get("energy_kwh", 0),
+                emissions_kg=r.get("emissions_kg", 0),
+            ))
+
+        # Add currently loaded metrics if no history
+        if not records and baseline_metrics:
+            from greentensor.report.esg import ESGRunRecord
+            import time as _time
+            reporter._runs.append(ESGRunRecord(
+                run_id="loaded_baseline",
+                timestamp=_time.time(),
+                model_name="loaded_model",
+                stage="training",
+                duration_s=baseline_metrics.duration_s,
+                energy_kwh=baseline_metrics.energy_kwh,
+                emissions_kg=baseline_metrics.emissions_kg,
+            ))
+
+        report = reporter.generate_report()
+
+        st.markdown("---")
+        st.markdown("**Generated Report**")
+        st.code(report.to_text(), language=None)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "Download JSON report",
+                data=report.to_json(),
+                file_name=f"greentensor_esg_{reporting_period.replace(' ', '_')}.json",
+                mime="application/json",
+            )
+        with col2:
+            st.download_button(
+                "Download text report",
+                data=report.to_text(),
+                file_name=f"greentensor_esg_{reporting_period.replace(' ', '_')}.txt",
+                mime="text/plain",
+            )
+
+        # Summary metrics
+        st.markdown("**Summary**")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Runs", report.total_runs)
+        c2.metric("Total Energy (DC)", f"{report.total_energy_kwh_dc:.4f} kWh")
+        c3.metric("Total CO2 (DC)", f"{report.total_emissions_kg_dc:.4f} kg")
+        c4.metric("Equiv. km driven", f"{report.emissions_equiv_km_driven:.1f}")
+
+
+elif page == "Run History":
+    st.markdown('<div class="section-title">Run History</div>', unsafe_allow_html=True)
+    st.markdown("All training and inference runs recorded by GreenTensor on this machine.")
+
+    history = RunHistory()
+    records = history.all()
+
+    if not records:
+        st.info("No run history yet. Runs are recorded automatically when you use GreenTensor.")
+        st.markdown("To record a run manually after loading metrics:")
+        st.code("""
+from greentensor.core.history import RunHistory
+from greentensor import GreenTensor
+
+history = RunHistory()
+
+with GreenTensor() as gt:
+    train()
+
+history.record(gt.metrics, model_name="MyModel", stage="training")
+        """)
+    else:
+        df = pd.DataFrame(records)
+        st.markdown(f"**{len(records)} runs recorded**")
+
+        st.dataframe(
+            df[["datetime", "model_name", "stage", "duration_s",
+                "energy_kwh", "emissions_kg", "idle_seconds"]].rename(columns={
+                "datetime": "Date",
+                "model_name": "Model",
+                "stage": "Stage",
+                "duration_s": "Duration (s)",
+                "energy_kwh": "Energy (kWh)",
+                "emissions_kg": "CO2 (kg)",
+                "idle_seconds": "Idle (s)",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("**Energy over time**")
+        st.line_chart(df.set_index("datetime")["energy_kwh"])
+
+        st.markdown("**CO2 over time**")
+        st.line_chart(df.set_index("datetime")["emissions_kg"])
+
+        if st.button("Clear history"):
+            history.clear()
+            st.success("History cleared.")
+            st.rerun()
 
 
 elif page == "Security Report":

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.4.0"
-description = "Energy-efficient, security-aware MLOps middleware — carbon tracking, GPU optimization, digital footprint attack detection across pre and post deployment."
+version = "0.5.0"
+description = "Carbon-Secure MLOps middleware — energy tracking, GPU optimization, ESG reporting, digital footprint attack detection, HuggingFace and Lightning integrations."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
