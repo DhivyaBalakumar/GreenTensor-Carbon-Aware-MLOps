@@ -8,6 +8,7 @@ from greentensor.report.metrics import (
 )
 from greentensor.report.esg import ESGReporter, ESGOrganization
 from greentensor.core.history import RunHistory
+from greentensor.water.aquatensor import AquaTensorBridge, AquaTensorConfig, PROVIDER_WUE, REGIONAL_WATER_STRESS
 
 st.set_page_config(
     page_title="GreenTensor Dashboard",
@@ -91,7 +92,7 @@ with st.sidebar:
     st.markdown("Carbon-aware MLOps middleware")
     st.markdown("---")
     st.markdown("**Navigation**")
-    page = st.radio("", ["Overview", "Energy Analysis", "Datacenter Impact", "ESG Report", "Run History", "Security Report", "How It Works"], label_visibility="collapsed")
+    page = st.radio("", ["Overview", "Energy Analysis", "Water Intelligence", "Datacenter Impact", "ESG Report", "Run History", "Security Report", "How It Works"], label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**Data Source**")
     mode = st.radio("", ["Manual Input", "Upload File"], label_visibility="collapsed")
@@ -297,6 +298,167 @@ elif page == "Energy Analysis":
                 "Energy (kWh)": [baseline_metrics.energy_kwh]
             }, index=["Baseline"]))
             st.info("Upload optimized metrics to see comparison charts.")
+
+
+elif page == "Water Intelligence":
+    st.markdown('<div class="section-title">AquaTensor Water Intelligence</div>', unsafe_allow_html=True)
+    st.markdown("""
+Every watt of GPU compute generates waste heat. AquaTensor captures that heat
+and converts it to fresh water via membrane distillation. GreenTensor measures
+the real compute, calculates the heat generated, and predicts exactly how much
+water AquaTensor can produce — per training job, per model, per day.
+    """)
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Datacenter / Cloud Provider**")
+        provider = st.selectbox("Provider", list(PROVIDER_WUE.keys()),
+                                format_func=lambda k: f"{k}  (WUE: {PROVIDER_WUE[k] or 'custom'})")
+        custom_wue = None
+        if provider == "custom":
+            custom_wue = st.number_input("Custom WUE (L/kWh)", min_value=0.1, value=1.8, step=0.1)
+
+        region = st.selectbox("Region (water stress)", list(REGIONAL_WATER_STRESS.keys()))
+
+        st.markdown("**AquaTensor Hardware**")
+        aquatensor_installed = st.toggle("AquaTensor MD system installed", value=True)
+        if aquatensor_installed:
+            whr = st.slider("Waste Heat Recovery ratio", 0.1, 1.0, 0.65, 0.05,
+                            help="Fraction of GPU heat captured by AquaTensor")
+            feed_temp = st.slider("Coolant feed temperature (C)", 40, 80, 60,
+                                  help="Temperature of liquid coolant fed to membrane")
+        else:
+            whr = 0.0
+            feed_temp = 60
+
+    with col2:
+        st.markdown("**Membrane Distillation Reference**")
+        st.markdown("""
+| Feed Temp | MD Yield |
+|-----------|----------|
+| 40 C | 2.5 L/kWh |
+| 50 C | 4.0 L/kWh |
+| 60 C | 5.5 L/kWh |
+| 70 C | 7.0 L/kWh |
+| 80 C | 8.5 L/kWh |
+
+Source: Khayet & Matsuura, Membrane Distillation (2011)
+
+**Regional Water Stress (WRI Aqueduct)**
+        """)
+        stress_df = pd.DataFrame([
+            {"Region": k, "Stress Index": v,
+             "Level": "Extremely High" if v >= 4 else "High" if v >= 3 else "Medium" if v >= 2 else "Low"}
+            for k, v in REGIONAL_WATER_STRESS.items()
+        ])
+        st.dataframe(stress_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # Build config and calculate
+    aq_config = AquaTensorConfig(
+        provider=provider,
+        custom_wue=custom_wue,
+        region=region,
+        aquatensor_installed=aquatensor_installed,
+        whr_ratio=whr,
+        feed_temperature_c=float(feed_temp),
+    )
+    bridge = AquaTensorBridge(aq_config)
+
+    if baseline_metrics:
+        water = bridge.calculate_water_metrics(baseline_metrics.energy_kwh, baseline_metrics.duration_s)
+
+        st.markdown("**Water metrics for loaded run**")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            metric_card("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh")
+        with c2:
+            metric_card("Water Consumed", f"{water.water_consumed_liters:.3f} L",
+                        delta=f"WUE {water.wue} L/kWh", delta_good=False)
+        with c3:
+            if aquatensor_installed:
+                metric_card("Water Produced", f"{water.water_produced_liters:.3f} L",
+                            delta=f"via AquaTensor MD @ {feed_temp}C", delta_good=True)
+            else:
+                metric_card("Water Produced", "0.000 L", delta="AquaTensor not installed")
+        with c4:
+            net = water.net_water_impact_liters
+            good = net < 0
+            label = "NET POSITIVE" if good else "net negative"
+            metric_card("Net Water Impact", f"{net:.3f} L", delta=label, delta_good=good)
+
+        if aquatensor_installed and water.water_produced_liters > 0:
+            st.markdown("---")
+            st.markdown("**What this means**")
+            st.markdown(f"""
+- This compute session generated **{water.heat_generated_kwh:.6f} kWh** of waste heat
+- AquaTensor captured **{water.heat_recovered_kwh:.6f} kWh** ({whr*100:.0f}% recovery)
+- At {feed_temp}C feed temperature, membrane distillation yield is **{water.md_yield_liters_per_kwh:.1f} L/kWh**
+- **{water.water_produced_liters:.3f} liters** of fresh water produced
+- Equivalent to **{water.drinking_water_days:.1f} person-days** of drinking water
+- Region water stress: **{water.water_stress_label}** (index {water.water_stress_index}/5.0)
+            """)
+
+        # Forecast section
+        st.markdown("---")
+        st.markdown("**Heat Forecast for Upcoming Jobs**")
+        st.markdown("Enter your queued training jobs to predict water yield:")
+
+        n_jobs = st.number_input("Number of queued jobs", 1, 10, 3)
+        jobs = []
+        for i in range(int(n_jobs)):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                name = st.text_input(f"Job {i+1} name", value=f"training_job_{i+1}", key=f"jn{i}")
+            with c2:
+                dur = st.number_input(f"Duration (hours)", 0.5, 72.0, 2.0, key=f"jd{i}")
+            with c3:
+                pwr = st.number_input(f"Est. GPU power (W)", 50, 1000, 300, key=f"jp{i}")
+            jobs.append({"name": name, "estimated_duration_s": dur * 3600,
+                         "estimated_power_w": pwr})
+
+        if st.button("Forecast water yield"):
+            forecast = bridge.forecast_heat(jobs)
+            st.markdown(f"""
+**Forecast results:**
+- Total compute energy: **{forecast.predicted_energy_kwh:.3f} kWh**
+- Heat recovered by AquaTensor: **{forecast.predicted_heat_kwh:.3f} kWh**
+- Predicted water production: **{forecast.predicted_water_liters:.1f} liters**
+- MD viable at current temperature: **{"Yes" if forecast.temperature_sustained else "No"}**
+
+**Recommendation:** {forecast.optimal_schedule_recommendation}
+            """)
+    else:
+        st.info("Load metrics from the sidebar to see water calculations.")
+
+    st.markdown("---")
+    st.markdown("**The AquaTensor + GreenTensor Loop**")
+    st.markdown("""
+```
+AI Training Job
+      |
+      v
+GreenTensor measures real GPU power (W)
+      |
+      v
+Heat generated = Power consumed (conservation of energy)
+      |
+      v
+AquaTensor captures waste heat via liquid cooling loop
+      |
+      v
+Membrane distillation converts heat to fresh water
+      |
+      v
+GreenTensor reports: energy used, CO2 emitted, water produced
+      |
+      v
+Net environmental impact: less carbon, more water
+```
+    """)
 
 
 elif page == "Datacenter Impact":

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.5.0"
-description = "Carbon-Secure MLOps middleware — energy tracking, GPU optimization, ESG reporting, digital footprint attack detection, HuggingFace and Lightning integrations."
+version = "0.6.0"
+description = "Carbon-Secure MLOps + AquaTensor Water Intelligence — real energy tracking, water consumption/production metrics, ESG reporting, and ML security."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]

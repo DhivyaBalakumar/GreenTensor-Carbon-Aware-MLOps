@@ -1,5 +1,5 @@
 """
-GreenTensor -- Carbon-Secure MLOps middleware for PyTorch.
+GreenTensor -- Carbon-Secure MLOps + AquaTensor Water Intelligence.
 """
 from greentensor.core.context import GreenTensor
 from greentensor.core.history import RunHistory
@@ -10,6 +10,7 @@ from greentensor.utils.config import Config
 from greentensor.security.anomaly_detector import AnomalyDetector, AnomalyDetectorConfig, AnomalyAlert
 from greentensor.security.digital_footprint import DigitalFootprintScanner, DigitalFootprintEvent, FootprintReport
 from greentensor.security.pattern_matcher import PatternMatcher, PatternMatchResult
+from greentensor.water.aquatensor import AquaTensorBridge, AquaTensorConfig, WaterMetrics, PROVIDER_WUE, REGIONAL_WATER_STRESS
 
 __all__ = [
     "GreenTensor",
@@ -32,4 +33,9 @@ __all__ = [
     "FootprintReport",
     "PatternMatcher",
     "PatternMatchResult",
+    "AquaTensorBridge",
+    "AquaTensorConfig",
+    "WaterMetrics",
+    "PROVIDER_WUE",
+    "REGIONAL_WATER_STRESS",
 ]

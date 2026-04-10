@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
+from greentensor.water.aquatensor import AquaTensorBridge, AquaTensorConfig, WaterMetrics
 
 # Industry PUE benchmarks
 PUE_PRESETS = {
@@ -42,6 +43,8 @@ class RunMetrics:
     energy_kwh_dc: Optional[float] = None
     emissions_kg_dc: Optional[float] = None
     dc_config: Optional[DatacenterConfig] = None
+    # Water metrics (populated by apply_aquatensor_config)
+    water: Optional[WaterMetrics] = None
 
     def apply_datacenter_config(self, dc: DatacenterConfig) -> "RunMetrics":
         """
@@ -60,6 +63,25 @@ class RunMetrics:
             energy_kwh_dc=total_energy,
             emissions_kg_dc=total_emissions,
             dc_config=dc,
+            water=self.water,
+        )
+
+    def apply_aquatensor_config(self, config: AquaTensorConfig) -> "RunMetrics":
+        """
+        Returns a new RunMetrics with water metrics populated.
+        Uses real measured energy to calculate water consumption and production.
+        """
+        bridge = AquaTensorBridge(config)
+        water_metrics = bridge.calculate_water_metrics(self.energy_kwh, self.duration_s)
+        return RunMetrics(
+            duration_s=self.duration_s,
+            energy_kwh=self.energy_kwh,
+            emissions_kg=self.emissions_kg,
+            idle_seconds=self.idle_seconds,
+            energy_kwh_dc=self.energy_kwh_dc,
+            emissions_kg_dc=self.emissions_kg_dc,
+            dc_config=self.dc_config,
+            water=water_metrics,
         )
 
 
