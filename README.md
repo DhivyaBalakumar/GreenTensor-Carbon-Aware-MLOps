@@ -2,9 +2,9 @@
 
 **Carbon-Secure MLOps + AquaTensor Water Intelligence**
 
-GreenTensor is the first middleware platform that simultaneously reduces AI compute costs, measures carbon and water impact, detects ML-specific cyberattacks, and generates regulatory-compliant ESG reports — all from a single Python wrapper around your existing training code.
+GreenTensor is the first middleware platform that simultaneously reduces AI compute costs, measures carbon and water impact, detects ML-specific cyberattacks, generates regulatory-compliant ESG reports, and schedules jobs for the cleanest grid window — all from a single Python wrapper around your existing training code.
 
-Built by Dhivya Balakumar | v0.6.0 | MIT License
+Built by Dhivya Balakumar | v0.7.0 | MIT License
 
 PyPI: https://pypi.org/project/greentensor | GitHub: https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps
 
@@ -257,6 +257,60 @@ trainer = Trainer(
 trainer.fit(model)
 ```
 
+### Carbon-Aware Scheduling
+
+Check real-time grid carbon intensity before running a job. Same compute, less CO2 — just by choosing the right time.
+
+```python
+from greentensor import CarbonAwareScheduler
+
+scheduler = CarbonAwareScheduler(zone="IN-NO")
+rec = scheduler.should_run_now(estimated_energy_kwh=0.5)
+# "Grid is carbon-heavy (680 gCO2/kWh). Wait 3.0h for clean window (10:00-14:00 UTC). Estimated 35% reduction."
+
+# Block until grid is clean (up to 6 hours)
+with scheduler.wait_for_clean_grid(max_wait_hours=6):
+    train()
+```
+
+Supported zones: US-CAL-CISO, US-TEX-ERCO, GB, DE, FR, IN-NO, IN-SO, SG, AU-NSW, NO-NO1 and more. Uses electricityMap API when available, falls back to static regional averages with time-of-day variation.
+
+### Carbon Budget Enforcement
+
+```python
+from greentensor import GreenTensor, CarbonBudget
+
+with GreenTensor(
+    carbon_budget=CarbonBudget(max_kg_per_run=0.005, warn_at_pct=80.0, job_name="bert-v3")
+) as gt:
+    train()
+# Raises CarbonBudgetExceeded if job emits more than 0.005 kg CO2
+```
+
+### Efficiency Recommendations
+
+```python
+with GreenTensor() as gt:
+    train()
+
+gt.recommend(batch_size=32, mixed_precision_enabled=False, gpu_util_avg_pct=45.0)
+# [HIGH] Mixed precision not enabled — 28% estimated savings
+# [HIGH] GPU idle 50% — add num_workers=4 to DataLoader — 35% estimated savings
+# [HIGH] Batch size too small — increase to 64+ — 15% estimated savings
+```
+
+### Webhook Alerting
+
+```python
+from greentensor import GreenTensor, SlackWebhook, PagerDutyAlert, MultiAlert
+
+with GreenTensor(on_alert=MultiAlert(
+    SlackWebhook("https://hooks.slack.com/services/YOUR/WEBHOOK"),
+    PagerDutyAlert("your-pagerduty-key"),
+)) as gt:
+    train()
+```
+
 ### Run History
 Persists metrics across sessions for trend analysis:
 ```python
@@ -291,7 +345,7 @@ The observability dashboard shows carbon footprint and security signals side by 
 pytest tests/ -v
 ```
 
-43 tests across: config, metrics, report, profiler, batch optimizer, context manager, anomaly detector, digital footprint scanner, water intelligence.
+58 tests across: config, metrics, report, profiler, batch optimizer, context manager, anomaly detector, digital footprint scanner, water intelligence, carbon scheduler, budget enforcement, efficiency recommender.
 
 ---
 
@@ -307,6 +361,10 @@ pytest tests/ -v
 | Model integrity | hashlib SHA-256 |
 | Water intelligence | Membrane distillation physics (Khayet & Matsuura) |
 | Water stress data | WRI Aqueduct index |
+| Carbon scheduling | electricityMap API + static regional fallback |
+| Budget enforcement | CarbonBudget / CarbonBudgetExceeded |
+| Efficiency recommendations | EfficiencyRecommender |
+| Webhook alerting | Slack, PagerDuty, Generic HTTP, MultiAlert |
 | Dashboard | Streamlit, Pandas |
 | Packaging | PyPI, setuptools, GitHub Actions |
 | Security taxonomy | MITRE ATLAS |
