@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.6.0"
-description = "Carbon-Secure MLOps + AquaTensor Water Intelligence — real energy tracking, water consumption/production metrics, ESG reporting, and ML security."
+version = "0.7.0"
+description = "Carbon-Secure MLOps — carbon-aware scheduling, budget enforcement, efficiency recommendations, webhook alerting, AquaTensor water intelligence."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]

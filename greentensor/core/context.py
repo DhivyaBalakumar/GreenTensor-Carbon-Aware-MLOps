@@ -20,11 +20,13 @@ class GreenTensor:
                  scan_dependencies=True,
                  monitor_network=True,
                  monitor_processes=True,
-                 trusted_hosts=None):
+                 trusted_hosts=None,
+                 carbon_budget=None):
         self.config = config or Config()
         self.baseline = baseline
         self.verbose = verbose
         self.save_path = save_path
+        self.carbon_budget = carbon_budget
         self.tracker = Tracker(self.config)
         self.gpu_optimizer = GPUOptimizer(self.config)
         self.idle_optimizer = IdleOptimizer(self.config)
@@ -71,6 +73,10 @@ class GreenTensor:
             idle_seconds=self.idle_optimizer.idle_seconds,
         )
 
+        # Carbon budget check
+        if self.carbon_budget:
+            self.carbon_budget.check(emissions_kg, energy_kwh)
+
         if self.save_path:
             try:
                 with open(self.save_path, "wb") as f:
@@ -96,22 +102,24 @@ class GreenTensor:
     def mixed_precision(self):
         return self.gpu_optimizer.mixed_precision()
 
-    def register_model(self, path: str):
-        """Register a model file for tampering detection."""
+    def register_model(self, path):
         if self.footprint_scanner:
             self.footprint_scanner.register_model_file(path)
 
-    def verify_model(self, path: str = None):
-        """Verify registered model files have not been tampered with."""
+    def verify_model(self, path=None):
         if self.footprint_scanner:
             return self.footprint_scanner.verify_model_files()
         return []
 
-    def record_inference(self, latency_s: float, input_size: int = 0,
-                         confidence: float = None):
-        """Record an inference call for post-deployment anomaly detection."""
+    def record_inference(self, latency_s, input_size=0, confidence=None):
         if self.footprint_scanner:
             self.footprint_scanner.record_inference(latency_s, input_size, confidence)
+
+    def recommend(self, **kwargs):
+        from greentensor.optimizers.recommender import EfficiencyRecommender
+        if self.metrics:
+            return EfficiencyRecommender().print_recommendations(self.metrics, **kwargs)
+        return []
 
     @property
     def security_alerts(self):
@@ -119,7 +127,7 @@ class GreenTensor:
         if self.anomaly_detector:
             alerts += self.anomaly_detector.alerts
         if self.footprint_scanner:
-            alerts += [e for e in self.footprint_scanner.events]
+            alerts += list(self.footprint_scanner.events)
         return alerts
 
     @property
