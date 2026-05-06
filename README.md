@@ -4,7 +4,7 @@
 
 GreenTensor is the first middleware platform that simultaneously reduces AI compute costs, measures carbon and water impact, detects ML-specific cyberattacks, generates regulatory-compliant ESG reports, and schedules jobs for the cleanest grid window — all from a single Python wrapper around your existing training code.
 
-Built by Dhivya Balakumar | v0.7.0 | MIT License
+Built by Dhivya Balakumar | v0.7.1 | MIT License
 
 PyPI: https://pypi.org/project/greentensor | GitHub: https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps
 

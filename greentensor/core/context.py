@@ -1,7 +1,10 @@
+"""
+GreenTensor context manager — main entry point.
+
+Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
+License: MIT
+"""
 import time
-import pickle
-import functools
-from greentensor.core.tracker import Tracker
 from greentensor.optimizers.gpu_optimizer import GPUOptimizer
 from greentensor.optimizers.idle_optimizer import IdleOptimizer
 from greentensor.security.anomaly_detector import AnomalyDetector, AnomalyDetectorConfig

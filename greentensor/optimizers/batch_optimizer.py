@@ -1,6 +1,13 @@
+"""
+GreenTensor Batch Optimizer — GPU memory-aware batch size recommendation.
+
+Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
+License: MIT
+"""
 from .base import BaseOptimizer
 from greentensor.utils.config import Config
 from greentensor.utils.logger import logger
+
 
 class BatchOptimizer(BaseOptimizer):
     """Suggests an optimal batch size based on GPU memory availability."""

@@ -1,5 +1,10 @@
+"""
+GreenTensor GPU Optimizer — cuDNN benchmark and mixed precision.
+
+Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
+License: MIT
+"""
 import torch
-from .base import BaseOptimizer
 from greentensor.utils.logger import logger
 from greentensor.utils.config import Config
 

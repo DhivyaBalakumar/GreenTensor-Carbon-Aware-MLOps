@@ -1,6 +1,10 @@
+"""
+GreenTensor Tracker — energy and carbon emissions measurement.
+
+Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
+License: MIT
+"""
 import time
-from greentensor.utils.config import Config
-from greentensor.utils.logger import logger
 
 class Tracker:
     """

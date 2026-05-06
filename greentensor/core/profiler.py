@@ -1,8 +1,10 @@
+"""
+GreenTensor GPU Profiler — nvidia-smi metrics and energy estimation.
+
+Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
+License: MIT
+"""
 import subprocess
-import platform
-import time
-import functools
-from greentensor.utils.logger import logger
 
 class Profiler:
 

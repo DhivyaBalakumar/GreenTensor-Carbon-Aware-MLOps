@@ -4,31 +4,49 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greentensor"
-version = "0.7.0"
-description = "Carbon-Secure MLOps — carbon-aware scheduling, budget enforcement, efficiency recommendations, webhook alerting, AquaTensor water intelligence."
+version = "0.7.1"
+description = "Carbon-Secure MLOps — carbon tracking, ML security monitoring, water intelligence, and ESG reporting in one Python context manager."
 readme = "README.md"
-license = "MIT"
+license = { text = "MIT" }
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
-keywords = ["green ai", "carbon", "energy", "pytorch", "sustainability", "mlops"]
+maintainers = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
+keywords = ["green ai", "carbon", "mlops", "sustainability", "ml security", "energy", "pytorch", "aquatensor", "water", "esg"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+    "Topic :: System :: Monitoring",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
 ]
 requires-python = ">=3.9"
-dependencies = ["torch", "numpy", "codecarbon", "psutil", "streamlit"]
+dependencies = [
+    "torch>=1.13",
+    "numpy>=1.21",
+    "codecarbon>=2.3",
+    "psutil>=5.9",
+    "streamlit>=1.28",
+]
 
 [project.optional-dependencies]
-security = ["alibi-detect", "llm-guard"]
-all = ["alibi-detect", "llm-guard"]
+security = ["alibi-detect>=0.11", "llm-guard>=0.3"]
+all = ["alibi-detect>=0.11", "llm-guard>=0.3"]
+dev = ["pytest>=7.0", "pytest-mock>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/"
-Issues = "https://github.com/DhivyaBalakumar/GreenTensor/issues"
+Documentation = "https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/blob/main/README.md"
+"Bug Tracker" = "https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/issues"
+"Source Code" = "https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps/"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["greentensor*"]
-exclude = ["tests*"]
+exclude = ["tests*", "examples*", "dashboard*"]
