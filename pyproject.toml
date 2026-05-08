@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "greentensor"
 version = "0.7.1"
 description = "Carbon-Secure MLOps — carbon tracking, ML security monitoring, water intelligence, and ESG reporting in one Python context manager."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
 maintainers = [{ name = "Dhivya Balakumar", email = "dhivyabalakumar28@gmail.com" }]
 keywords = ["green ai", "carbon", "mlops", "sustainability", "ml security", "energy", "pytorch", "aquatensor", "water", "esg"]
@@ -24,7 +24,6 @@ classifiers = [
     "Topic :: System :: Monitoring",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
 ]
 requires-python = ">=3.9"
 dependencies = [

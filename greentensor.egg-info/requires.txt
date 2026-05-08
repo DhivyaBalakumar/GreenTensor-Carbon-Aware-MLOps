@@ -1,13 +1,17 @@
-torch
-numpy
-codecarbon
-psutil
-streamlit
+torch>=1.13
+numpy>=1.21
+codecarbon>=2.3
+psutil>=5.9
+streamlit>=1.28
 
 [all]
-alibi-detect
-llm-guard
+alibi-detect>=0.11
+llm-guard>=0.3
+
+[dev]
+pytest>=7.0
+pytest-mock>=3.0
 
 [security]
-alibi-detect
-llm-guard
+alibi-detect>=0.11
+llm-guard>=0.3
