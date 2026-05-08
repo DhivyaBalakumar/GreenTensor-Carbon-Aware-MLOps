@@ -5,6 +5,9 @@ Author: Dhivya Balakumar <dhivyabalakumar28@gmail.com>
 License: MIT
 """
 import subprocess
+import functools
+import time
+from greentensor.utils.logger import logger
 
 class Profiler:
 
