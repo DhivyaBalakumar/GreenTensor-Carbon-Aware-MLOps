@@ -6,70 +6,122 @@ import pandas as pd
 from greentensor.report.metrics import (
     RunMetrics, calculate_savings, DatacenterConfig, PUE_PRESETS
 )
-from greentensor.report.esg import ESGReporter, ESGOrganization
+from greentensor.report.esg import ESGReporter, ESGOrganization, ESGRunRecord
 from greentensor.core.history import RunHistory
 from greentensor.water.aquatensor import AquaTensorBridge, AquaTensorConfig, PROVIDER_WUE, REGIONAL_WATER_STRESS
+import time as _time
 
 st.set_page_config(
     page_title="GreenTensor Dashboard",
+    page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Global styles ─────────────────────────────────────────────────────────────
+# ── Brand styles ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    .metric-card {
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 6px;
-        padding: 1.2rem 1.5rem;
-        margin-bottom: 0.5rem;
-    }
-    .metric-label { font-size: 0.78rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.05em; }
-    .metric-value { font-size: 1.6rem; font-weight: 700; color: #212529; }
-    .metric-delta-good { font-size: 0.85rem; color: #198754; font-weight: 600; }
-    .metric-delta-bad  { font-size: 0.85rem; color: #dc3545; font-weight: 600; }
-    .section-title { font-size: 1.1rem; font-weight: 700; color: #212529;
-                     border-bottom: 2px solid #dee2e6; padding-bottom: 0.4rem; margin-bottom: 1rem; }
-    .alert-critical { background:#fff5f5; border-left:4px solid #dc3545; padding:0.8rem 1rem; margin:0.4rem 0; border-radius:4px; }
-    .alert-high     { background:#fff8f0; border-left:4px solid #fd7e14; padding:0.8rem 1rem; margin:0.4rem 0; border-radius:4px; }
-    .alert-medium   { background:#fffdf0; border-left:4px solid #ffc107; padding:0.8rem 1rem; margin:0.4rem 0; border-radius:4px; }
-    .alert-low      { background:#f0fff4; border-left:4px solid #198754; padding:0.8rem 1rem; margin:0.4rem 0; border-radius:4px; }
-    .tag { display:inline-block; padding:0.15rem 0.5rem; border-radius:3px;
-           font-size:0.72rem; font-weight:700; letter-spacing:0.04em; margin-right:0.3rem; }
-    .tag-source { background:#e9ecef; color:#495057; }
-    .tag-type   { background:#cfe2ff; color:#084298; }
-    .clean-badge { background:#d1e7dd; color:#0a3622; padding:0.4rem 1rem;
-                   border-radius:4px; font-weight:600; display:inline-block; }
-    .threat-badge { background:#f8d7da; color:#58151c; padding:0.4rem 1rem;
-                    border-radius:4px; font-weight:600; display:inline-block; }
-    hr { border: none; border-top: 1px solid #dee2e6; margin: 1.5rem 0; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+  .block-container { padding: 1.5rem 2rem 2rem; background: #0D1117; }
+  section[data-testid="stSidebar"] { background: #161B22 !important; }
+  section[data-testid="stSidebar"] * { color: #E6EDF3 !important; }
+
+  .gt-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 0.4rem 0 1.2rem;
+    border-bottom: 1px solid #21262D; margin-bottom: 1.4rem;
+  }
+  .gt-logo { font-size: 1.8rem; }
+  .gt-title { font-size: 1.5rem; font-weight: 800; color: #00C896; letter-spacing: -0.02em; }
+  .gt-subtitle { font-size: 0.78rem; color: #8B949E; margin-top: 2px; }
+  .gt-version {
+    margin-left: auto; background: #0D2137; border: 1px solid #21262D;
+    color: #8B949E; font-size: 0.68rem; padding: 3px 10px; border-radius: 20px;
+  }
+
+  .section-title {
+    font-size: 1rem; font-weight: 700; color: #E6EDF3;
+    border-bottom: 1px solid #21262D; padding-bottom: 8px; margin-bottom: 16px;
+  }
+
+  .kpi-card {
+    background: #161B22; border: 1px solid #21262D;
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 8px;
+  }
+  .kpi-label { font-size: 0.68rem; font-weight: 600; color: #8B949E;
+               text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .kpi-value { font-size: 1.6rem; font-weight: 800; color: #E6EDF3; line-height: 1.1; }
+  .kpi-delta-good { font-size: 0.75rem; font-weight: 600; color: #00C896; margin-top: 3px; }
+  .kpi-delta-bad  { font-size: 0.75rem; font-weight: 600; color: #FF5C5C; margin-top: 3px; }
+  .kpi-delta-neutral { font-size: 0.75rem; color: #8B949E; margin-top: 3px; }
+
+  .info-box {
+    background: #161B22; border: 1px solid #21262D; border-left: 3px solid #00C896;
+    border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 8px 0;
+    font-size: 0.82rem; color: #8B949E;
+  }
+  .warn-box {
+    background: #1A1200; border: 1px solid #21262D; border-left: 3px solid #F5A623;
+    border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 8px 0;
+    font-size: 0.82rem; color: #8B949E;
+  }
+  .clean-badge {
+    display: inline-block; background: #0A1A0A; border: 1px solid #00C896;
+    color: #00C896; font-weight: 700; padding: 6px 16px; border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .threat-badge {
+    display: inline-block; background: #1A0A0A; border: 1px solid #FF5C5C;
+    color: #FF5C5C; font-weight: 700; padding: 6px 16px; border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .alert-card {
+    border-radius: 6px; padding: 10px 14px; margin: 6px 0; font-size: 0.82rem;
+  }
+  .alert-critical { background:#1A0A0A; border-left:3px solid #FF5C5C; color:#E6EDF3; }
+  .alert-high     { background:#1A1000; border-left:3px solid #F5A623; color:#E6EDF3; }
+  .alert-medium   { background:#1A1A00; border-left:3px solid #FFC107; color:#E6EDF3; }
+  .alert-low      { background:#0A1A0A; border-left:3px solid #00C896; color:#E6EDF3; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 3px;
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; margin-right: 4px;
+  }
+  .tag-source { background: #21262D; color: #8B949E; }
+  .tag-type   { background: #0D2137; color: #4A9EFF; }
+  .gt-divider { border: none; border-top: 1px solid #21262D; margin: 1.2rem 0; }
+
+  .stButton > button {
+    background: #00C896 !important; color: #0D1117 !important;
+    font-weight: 700 !important; border: none !important; border-radius: 6px !important;
+  }
+  .stButton > button:hover { background: #00A87E !important; }
+  .stDownloadButton > button {
+    background: #161B22 !important; color: #00C896 !important;
+    border: 1px solid #00C896 !important; font-weight: 600 !important;
+    border-radius: 6px !important;
+  }
+  [data-testid="stMetricValue"] { color: #E6EDF3 !important; }
+  [data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def metric_card(label, value, delta=None, delta_good=True):
+def kpi(label, value, delta=None, good=True, neutral=False):
     delta_html = ""
     if delta:
-        cls = "metric-delta-good" if delta_good else "metric-delta-bad"
+        cls = "kpi-delta-neutral" if neutral else ("kpi-delta-good" if good else "kpi-delta-bad")
         delta_html = f'<div class="{cls}">{delta}</div>'
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value">{value}</div>
-        {delta_html}
+    <div class="kpi-card">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">{value}</div>
+      {delta_html}
     </div>""", unsafe_allow_html=True)
 
 
-def load_metrics_file(file) -> RunMetrics:
-    """
-    Accepts .pkl (binary, auto-generated by GreenTensor) or
-    .json (human-readable, manually created).
-    Returns a RunMetrics dataclass.
-    """
+def load_metrics_file(file):
     name = file.name.lower()
     if name.endswith(".pkl"):
         return pickle.load(file)
@@ -81,24 +133,25 @@ def load_metrics_file(file) -> RunMetrics:
             emissions_kg=float(data["emissions_kg"]),
             idle_seconds=float(data.get("idle_seconds", 0.0)),
         )
-    else:
-        st.error(f"Unsupported file: {name}. Use .pkl or .json")
-        return None
+    st.error(f"Unsupported file: {name}. Use .pkl or .json")
+    return None
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### GreenTensor")
-    st.markdown("Carbon-aware MLOps middleware")
+    st.markdown("### 🌿 GreenTensor")
+    st.markdown("Carbon-Secure MLOps · v0.7.1")
     st.markdown("---")
-    st.markdown("**Navigation**")
-    page = st.radio("", ["Overview", "Energy Analysis", "Water Intelligence", "Datacenter Impact", "ESG Report", "Run History", "Security Report", "How It Works"], label_visibility="collapsed")
+    page = st.radio("Navigation", [
+        "Overview", "Energy Analysis", "Water Intelligence",
+        "Datacenter Impact", "ESG Report", "Run History",
+        "Security Report", "How It Works",
+    ])
     st.markdown("---")
-    st.markdown("**Data Source**")
-    mode = st.radio("", ["Manual Input", "Upload File"], label_visibility="collapsed")
+    mode = st.radio("Data source", ["Manual Input", "Upload File"])
     st.markdown("---")
-    st.markdown("v0.3.0 — MIT License")
-    st.markdown("Dhivya Balakumar")
+    st.markdown("Built by Dhivya Balakumar")
+    st.markdown("[GitHub](https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps) · MIT License")
 
 
 # ── Data input ────────────────────────────────────────────────────────────────
@@ -107,706 +160,462 @@ optimized_metrics = None
 security_alerts = []
 
 if mode == "Manual Input":
-    with st.expander("Enter run metrics manually", expanded=True):
+    with st.expander("Enter run metrics", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("**Baseline run** (without GreenTensor)")
-            b_duration  = st.number_input("Duration (seconds)",    key="b_d",  min_value=0.0, value=0.0)
-            b_energy    = st.number_input("Energy (kWh)",          key="b_e",  min_value=0.0, value=0.0, format="%.6f")
-            b_emissions = st.number_input("Emissions (kg CO2)",    key="b_em", min_value=0.0, value=0.0, format="%.6f")
+            st.markdown("**Baseline** (without GreenTensor)")
+            b_dur = st.number_input("Duration (s)", key="b_d", min_value=0.0, value=60.0)
+            b_e   = st.number_input("Energy (kWh)", key="b_e", min_value=0.0, value=0.00058, format="%.6f")
+            b_em  = st.number_input("Emissions (kg CO2)", key="b_em", min_value=0.0, value=0.000135, format="%.6f")
         with col2:
-            st.markdown("**Optimized run** (with GreenTensor)")
-            o_duration  = st.number_input("Duration (seconds)",    key="o_d",  min_value=0.0, value=0.0)
-            o_energy    = st.number_input("Energy (kWh)",          key="o_e",  min_value=0.0, value=0.0, format="%.6f")
-            o_emissions = st.number_input("Emissions (kg CO2)",    key="o_em", min_value=0.0, value=0.0, format="%.6f")
-
-        if b_energy > 0 and o_energy > 0:
-            baseline_metrics  = RunMetrics(duration_s=b_duration,  energy_kwh=b_energy,  emissions_kg=b_emissions)
-            optimized_metrics = RunMetrics(duration_s=o_duration,  energy_kwh=o_energy,  emissions_kg=o_emissions)
-
+            st.markdown("**Optimized** (with GreenTensor)")
+            o_dur = st.number_input("Duration (s)", key="o_d", min_value=0.0, value=45.0)
+            o_e   = st.number_input("Energy (kWh)", key="o_e", min_value=0.0, value=0.000412, format="%.6f")
+            o_em  = st.number_input("Emissions (kg CO2)", key="o_em", min_value=0.0, value=0.000096, format="%.6f")
+        if b_e > 0 and o_e > 0:
+            baseline_metrics  = RunMetrics(duration_s=b_dur, energy_kwh=b_e,  emissions_kg=b_em)
+            optimized_metrics = RunMetrics(duration_s=o_dur, energy_kwh=o_e, emissions_kg=o_em)
 else:
-    with st.expander("Upload metrics files", expanded=True):
-        st.markdown('<div class="section-title">How to get your files</div>', unsafe_allow_html=True)
-
+    with st.expander("Upload metrics files", expanded=False):
         st.markdown("""
-GreenTensor automatically saves measurement files after every training run.
-You do not create these files manually — they are generated for you.
-Follow these three steps:
-        """)
-
-        st.markdown("---")
-        st.markdown("**Step 1 — Run your training without GreenTensor (baseline)**")
-        st.markdown("""
-Open a terminal in your project folder and run:
+**How to generate these files:**
 ```bash
-python examples/train_baseline.py
+python examples/train_baseline.py   # saves baseline_metrics.pkl
+python examples/train_optimized.py  # saves optimized_metrics.pkl
 ```
-This runs your training loop with no optimizations and saves a file called
-`baseline_metrics.pkl` in the same folder. That file records how much energy,
-time, and CO2 your training consumed without any optimization.
+Or upload a `.json` file with keys: `duration_s`, `energy_kwh`, `emissions_kg`, `idle_seconds`
         """)
-
-        st.markdown("**Step 2 — Run your training with GreenTensor (optimized)**")
-        st.markdown("""
-```bash
-python examples/train_optimized.py
-```
-This runs the same training loop wrapped in GreenTensor — GPU optimizations on,
-carbon tracking active. It saves `optimized_metrics.pkl` in the same folder.
-        """)
-
-        st.markdown("**Step 3 — Upload both files below**")
-        st.markdown("""
-Upload `baseline_metrics.pkl` on the left and `optimized_metrics.pkl` on the right.
-The dashboard will read both files, extract the measurements, calculate the savings,
-and show you the comparison charts.
-
-If you do not have `.pkl` files yet, you can also upload a `.json` file you create
-manually. It must contain these four fields:
-```json
-{
-    "duration_s": 45.2,
-    "energy_kwh": 0.000412,
-    "emissions_kg": 0.000096,
-    "idle_seconds": 2.1
-}
-```
-- `duration_s` — how long the training run took in seconds
-- `energy_kwh` — energy consumed in kilowatt-hours
-- `emissions_kg` — CO2 emissions in kilograms
-- `idle_seconds` — time the GPU spent idle (put 0 if unknown)
-        """)
-        st.markdown("---")
-
         col1, col2 = st.columns(2)
         with col1:
-            b_file = st.file_uploader("Baseline metrics file", type=["pkl", "json"], key="b_f")
+            b_file = st.file_uploader("Baseline metrics", type=["pkl", "json"], key="b_f")
             if b_file:
                 baseline_metrics = load_metrics_file(b_file)
                 if baseline_metrics:
-                    st.success("Baseline file loaded successfully.")
-                    st.dataframe(pd.DataFrame([{
-                        "duration_s": baseline_metrics.duration_s,
-                        "energy_kwh": baseline_metrics.energy_kwh,
-                        "emissions_kg": baseline_metrics.emissions_kg,
-                        "idle_seconds": baseline_metrics.idle_seconds,
-                    }]), use_container_width=True)
-
+                    st.success("Baseline loaded")
         with col2:
-            o_file = st.file_uploader("Optimized metrics file", type=["pkl", "json"], key="o_f")
+            o_file = st.file_uploader("Optimized metrics", type=["pkl", "json"], key="o_f")
             if o_file:
                 optimized_metrics = load_metrics_file(o_file)
                 if optimized_metrics:
-                    st.success("Optimized file loaded successfully.")
-                    st.dataframe(pd.DataFrame([{
-                        "duration_s": optimized_metrics.duration_s,
-                        "energy_kwh": optimized_metrics.energy_kwh,
-                        "emissions_kg": optimized_metrics.emissions_kg,
-                        "idle_seconds": optimized_metrics.idle_seconds,
-                    }]), use_container_width=True)
-
-        # Auto-load from disk
+                    st.success("Optimized loaded")
         if not baseline_metrics and os.path.exists("baseline_metrics.pkl"):
             with open("baseline_metrics.pkl", "rb") as f:
                 baseline_metrics = pickle.load(f)
             st.info("Auto-loaded baseline_metrics.pkl from current directory.")
 
 
+
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
+# Header shown on every page
+st.markdown("""
+<div class="gt-header">
+  <span class="gt-logo">🌿</span>
+  <div>
+    <div class="gt-title">GreenTensor</div>
+    <div class="gt-subtitle">Carbon-Secure MLOps + AquaTensor Water Intelligence</div>
+  </div>
+  <span class="gt-version">v0.7.1 · MIT</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Overview ──────────────────────────────────────────────────────────────────
 if page == "Overview":
     st.markdown('<div class="section-title">Overview</div>', unsafe_allow_html=True)
 
     if not baseline_metrics:
-        st.info("No data loaded. Use the sidebar to enter metrics manually or upload files.")
+        st.markdown("""
+        <div class="info-box">
+          No data loaded. Use the sidebar to enter metrics manually or upload .pkl / .json files.<br><br>
+          <strong>Quick start:</strong> Switch to "Manual Input" — sample values are pre-filled.
+        </div>""", unsafe_allow_html=True)
+
     elif baseline_metrics and not optimized_metrics:
-        st.markdown("**Baseline run loaded — awaiting optimized run for comparison.**")
-        col1, col2, col3 = st.columns(3)
-        with col1: metric_card("Duration", f"{baseline_metrics.duration_s:.2f} s")
-        with col2: metric_card("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh")
-        with col3: metric_card("CO2 Emissions", f"{baseline_metrics.emissions_kg:.6f} kg")
+        st.markdown("**Baseline run loaded — enter optimized run to see savings.**")
+        c1, c2, c3 = st.columns(3)
+        with c1: kpi("Duration", f"{baseline_metrics.duration_s:.2f} s", neutral=True)
+        with c2: kpi("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh", neutral=True)
+        with c3: kpi("CO2 Emissions", f"{baseline_metrics.emissions_kg:.6f} kg", neutral=True)
+
     else:
         savings = calculate_savings(baseline_metrics, optimized_metrics)
-        st.markdown("**Baseline vs Optimized — Summary**")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            metric_card("Energy Reduction", f"{savings['energy_reduction_pct']:.1f}%",
-                        delta="vs baseline", delta_good=True)
-        with col2:
-            metric_card("Energy Saved", f"{savings['energy_saved_kwh']:.6f} kWh",
-                        delta=f"from {baseline_metrics.energy_kwh:.6f} kWh", delta_good=True)
-        with col3:
-            metric_card("CO2 Saved", f"{savings['emissions_saved_kg']:.6f} kg",
-                        delta=f"from {baseline_metrics.emissions_kg:.6f} kg", delta_good=True)
-        with col4:
-            metric_card("Time Saved", f"{savings['time_saved_s']:.2f} s",
-                        delta=f"from {baseline_metrics.duration_s:.2f} s", delta_good=True)
+        st.markdown("**GreenTensor savings — baseline vs optimized**")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            kpi("Energy Reduction", f"{savings['energy_reduction_pct']:.1f}%",
+                delta=f"saved {savings['energy_saved_kwh']:.6f} kWh", good=True)
+        with c2:
+            kpi("CO2 Avoided", f"{savings['emissions_saved_kg']:.6f} kg",
+                delta=f"from {baseline_metrics.emissions_kg:.6f} kg baseline", good=True)
+        with c3:
+            kpi("Time Saved", f"{savings['time_saved_s']:.2f} s",
+                delta=f"from {baseline_metrics.duration_s:.2f} s", good=True)
+        with c4:
+            idle_pct = (baseline_metrics.idle_seconds / baseline_metrics.duration_s * 100) if baseline_metrics.duration_s > 0 else 0
+            kpi("GPU Idle Time", f"{baseline_metrics.idle_seconds:.1f} s",
+                delta=f"{idle_pct:.1f}% of run", good=(idle_pct < 10), neutral=(idle_pct == 0))
 
+        st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+        km = savings['emissions_saved_kg'] / 0.000192
+        trees = savings['emissions_saved_kg'] / 21.0
+        st.markdown("**Real-world impact of these savings**")
+        c1, c2, c3 = st.columns(3)
+        with c1: kpi("Equivalent km not driven", f"{km:.1f} km", neutral=True)
+        with c2: kpi("Trees equivalent (1 yr)", f"{trees:.4f}", neutral=True)
+        with c3: kpi("Runs analysed", "2", delta="baseline + optimized", neutral=True)
 
+# ── Energy Analysis ───────────────────────────────────────────────────────────
 elif page == "Energy Analysis":
     st.markdown('<div class="section-title">Energy Analysis</div>', unsafe_allow_html=True)
 
     if not baseline_metrics:
-        st.info("No data loaded.")
+        st.markdown('<div class="info-box">No data loaded.</div>', unsafe_allow_html=True)
     else:
         if optimized_metrics:
             savings = calculate_savings(baseline_metrics, optimized_metrics)
+            c1, c2, c3 = st.columns(3)
+            with c1: kpi("Energy Reduction", f"{savings['energy_reduction_pct']:.1f}%", good=True)
+            with c2: kpi("Energy Saved", f"{savings['energy_saved_kwh']:.6f} kWh", good=True)
+            with c3: kpi("CO2 Saved", f"{savings['emissions_saved_kg']:.6f} kg", good=True)
 
+            st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
             st.markdown("**Energy consumption (kWh)**")
-            st.bar_chart(pd.DataFrame({
-                "Energy (kWh)": [baseline_metrics.energy_kwh, optimized_metrics.energy_kwh]
-            }, index=["Baseline", "Optimized"]))
+            st.bar_chart(pd.DataFrame(
+                {"Energy (kWh)": [baseline_metrics.energy_kwh, optimized_metrics.energy_kwh]},
+                index=["Baseline", "Optimized"]))
 
             st.markdown("**CO2 emissions (kg)**")
-            st.bar_chart(pd.DataFrame({
-                "Emissions (kg CO2)": [baseline_metrics.emissions_kg, optimized_metrics.emissions_kg]
-            }, index=["Baseline", "Optimized"]))
+            st.bar_chart(pd.DataFrame(
+                {"Emissions (kg CO2)": [baseline_metrics.emissions_kg, optimized_metrics.emissions_kg]},
+                index=["Baseline", "Optimized"]))
 
             st.markdown("**Runtime (seconds)**")
-            st.bar_chart(pd.DataFrame({
-                "Duration (s)": [baseline_metrics.duration_s, optimized_metrics.duration_s]
-            }, index=["Baseline", "Optimized"]))
+            st.bar_chart(pd.DataFrame(
+                {"Duration (s)": [baseline_metrics.duration_s, optimized_metrics.duration_s]},
+                index=["Baseline", "Optimized"]))
 
-            st.markdown("---")
+            st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
             st.markdown("**Detailed breakdown**")
             st.dataframe(pd.DataFrame([
-                {
-                    "Run": "Baseline",
-                    "Duration (s)": baseline_metrics.duration_s,
-                    "Energy (kWh)": baseline_metrics.energy_kwh,
-                    "Emissions (kg)": baseline_metrics.emissions_kg,
-                    "Idle (s)": baseline_metrics.idle_seconds,
-                },
-                {
-                    "Run": "Optimized",
-                    "Duration (s)": optimized_metrics.duration_s,
-                    "Energy (kWh)": optimized_metrics.energy_kwh,
-                    "Emissions (kg)": optimized_metrics.emissions_kg,
-                    "Idle (s)": optimized_metrics.idle_seconds,
-                },
-                {
-                    "Run": "Saved",
-                    "Duration (s)": savings["time_saved_s"],
-                    "Energy (kWh)": savings["energy_saved_kwh"],
-                    "Emissions (kg)": savings["emissions_saved_kg"],
-                    "Idle (s)": "-",
-                },
+                {"Run": "Baseline",  "Duration (s)": baseline_metrics.duration_s,
+                 "Energy (kWh)": baseline_metrics.energy_kwh,
+                 "Emissions (kg)": baseline_metrics.emissions_kg,
+                 "Idle (s)": baseline_metrics.idle_seconds},
+                {"Run": "Optimized", "Duration (s)": optimized_metrics.duration_s,
+                 "Energy (kWh)": optimized_metrics.energy_kwh,
+                 "Emissions (kg)": optimized_metrics.emissions_kg,
+                 "Idle (s)": optimized_metrics.idle_seconds},
+                {"Run": "Saved",     "Duration (s)": savings["time_saved_s"],
+                 "Energy (kWh)": savings["energy_saved_kwh"],
+                 "Emissions (kg)": savings["emissions_saved_kg"], "Idle (s)": "-"},
             ]).set_index("Run"), use_container_width=True)
         else:
-            st.markdown("**Baseline energy data**")
-            st.bar_chart(pd.DataFrame({
-                "Energy (kWh)": [baseline_metrics.energy_kwh]
-            }, index=["Baseline"]))
-            st.info("Upload optimized metrics to see comparison charts.")
+            st.bar_chart(pd.DataFrame(
+                {"Energy (kWh)": [baseline_metrics.energy_kwh]}, index=["Baseline"]))
+            st.markdown('<div class="info-box">Upload optimized metrics to see comparison.</div>',
+                        unsafe_allow_html=True)
 
-
+# ── Water Intelligence ────────────────────────────────────────────────────────
 elif page == "Water Intelligence":
     st.markdown('<div class="section-title">AquaTensor Water Intelligence</div>', unsafe_allow_html=True)
-    st.markdown("""
-Every watt of GPU compute generates waste heat. AquaTensor captures that heat
-and converts it to fresh water via membrane distillation. GreenTensor measures
-the real compute, calculates the heat generated, and predicts exactly how much
-water AquaTensor can produce — per training job, per model, per day.
-    """)
+    st.markdown("Every watt of GPU compute becomes waste heat. AquaTensor converts that heat to fresh water via membrane distillation. GreenTensor measures the real compute and calculates exactly how much water is produced — per training job.")
 
-    st.markdown("---")
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Datacenter / Cloud Provider**")
-        provider = st.selectbox("Provider", list(PROVIDER_WUE.keys()),
+        provider = st.selectbox("Cloud / DC provider", list(PROVIDER_WUE.keys()),
                                 format_func=lambda k: f"{k}  (WUE: {PROVIDER_WUE[k] or 'custom'})")
         custom_wue = None
         if provider == "custom":
             custom_wue = st.number_input("Custom WUE (L/kWh)", min_value=0.1, value=1.8, step=0.1)
-
         region = st.selectbox("Region (water stress)", list(REGIONAL_WATER_STRESS.keys()))
-
-        st.markdown("**AquaTensor Hardware**")
         aquatensor_installed = st.toggle("AquaTensor MD system installed", value=True)
         if aquatensor_installed:
-            whr = st.slider("Waste Heat Recovery ratio", 0.1, 1.0, 0.65, 0.05,
-                            help="Fraction of GPU heat captured by AquaTensor")
-            feed_temp = st.slider("Coolant feed temperature (C)", 40, 80, 60,
-                                  help="Temperature of liquid coolant fed to membrane")
+            whr = st.slider("Waste Heat Recovery ratio", 0.1, 1.0, 0.65, 0.05)
+            feed_temp = st.slider("Coolant feed temperature (C)", 40, 80, 60)
         else:
-            whr = 0.0
-            feed_temp = 60
+            whr, feed_temp = 0.0, 60
 
     with col2:
-        st.markdown("**Membrane Distillation Reference**")
-        st.markdown("""
-| Feed Temp | MD Yield |
-|-----------|----------|
-| 40 C | 2.5 L/kWh |
-| 50 C | 4.0 L/kWh |
-| 60 C | 5.5 L/kWh |
-| 70 C | 7.0 L/kWh |
-| 80 C | 8.5 L/kWh |
-
-Source: Khayet & Matsuura, Membrane Distillation (2011)
-
-**Regional Water Stress (WRI Aqueduct)**
-        """)
-        stress_df = pd.DataFrame([
-            {"Region": k, "Stress Index": v,
+        st.markdown("**MD yield by temperature** (Khayet & Matsuura, 2011)")
+        st.dataframe(pd.DataFrame([
+            {"Temp (C)": t, "Yield (L/kWh)": y}
+            for t, y in {40: 2.5, 50: 4.0, 60: 5.5, 70: 7.0, 80: 8.5}.items()
+        ]), use_container_width=True, hide_index=True)
+        st.markdown("**Regional water stress (WRI Aqueduct)**")
+        st.dataframe(pd.DataFrame([
+            {"Region": k, "Index": v,
              "Level": "Extremely High" if v >= 4 else "High" if v >= 3 else "Medium" if v >= 2 else "Low"}
             for k, v in REGIONAL_WATER_STRESS.items()
-        ])
-        st.dataframe(stress_df, use_container_width=True, hide_index=True)
+        ]), use_container_width=True, hide_index=True)
 
-    st.markdown("---")
-
-    # Build config and calculate
-    aq_config = AquaTensorConfig(
-        provider=provider,
-        custom_wue=custom_wue,
-        region=region,
-        aquatensor_installed=aquatensor_installed,
-        whr_ratio=whr,
-        feed_temperature_c=float(feed_temp),
-    )
+    aq_config = AquaTensorConfig(provider=provider, custom_wue=custom_wue, region=region,
+                                  aquatensor_installed=aquatensor_installed,
+                                  whr_ratio=whr, feed_temperature_c=float(feed_temp))
     bridge = AquaTensorBridge(aq_config)
 
     if baseline_metrics:
         water = bridge.calculate_water_metrics(baseline_metrics.energy_kwh, baseline_metrics.duration_s)
-
-        st.markdown("**Water metrics for loaded run**")
+        st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            metric_card("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh")
-        with c2:
-            metric_card("Water Consumed", f"{water.water_consumed_liters:.3f} L",
-                        delta=f"WUE {water.wue} L/kWh", delta_good=False)
+        with c1: kpi("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh", neutral=True)
+        with c2: kpi("Water Consumed", f"{water.water_consumed_liters:.4f} L",
+                     delta=f"WUE {water.wue} L/kWh", good=False)
         with c3:
             if aquatensor_installed:
-                metric_card("Water Produced", f"{water.water_produced_liters:.3f} L",
-                            delta=f"via AquaTensor MD @ {feed_temp}C", delta_good=True)
+                kpi("Water Produced", f"{water.water_produced_liters:.4f} L",
+                    delta=f"AquaTensor @ {feed_temp}C", good=True)
             else:
-                metric_card("Water Produced", "0.000 L", delta="AquaTensor not installed")
+                kpi("Water Produced", "0.0000 L", delta="not installed", neutral=True)
         with c4:
             net = water.net_water_impact_liters
-            good = net < 0
-            label = "NET POSITIVE" if good else "net negative"
-            metric_card("Net Water Impact", f"{net:.3f} L", delta=label, delta_good=good)
+            kpi("Net Impact", f"{net:.4f} L",
+                delta="NET POSITIVE" if net < 0 else "net negative", good=(net < 0))
 
         if aquatensor_installed and water.water_produced_liters > 0:
-            st.markdown("---")
-            st.markdown("**What this means**")
             st.markdown(f"""
-- This compute session generated **{water.heat_generated_kwh:.6f} kWh** of waste heat
-- AquaTensor captured **{water.heat_recovered_kwh:.6f} kWh** ({whr*100:.0f}% recovery)
-- At {feed_temp}C feed temperature, membrane distillation yield is **{water.md_yield_liters_per_kwh:.1f} L/kWh**
-- **{water.water_produced_liters:.3f} liters** of fresh water produced
-- Equivalent to **{water.drinking_water_days:.1f} person-days** of drinking water
-- Region water stress: **{water.water_stress_label}** (index {water.water_stress_index}/5.0)
+- Heat generated: **{water.heat_generated_kwh:.6f} kWh** · Recovered: **{water.heat_recovered_kwh:.6f} kWh** ({whr*100:.0f}% WHR)
+- MD yield at {feed_temp}C: **{water.md_yield_liters_per_kwh:.1f} L/kWh** · Water produced: **{water.water_produced_liters:.4f} L**
+- Drinking water equivalent: **{water.drinking_water_days:.2f} person-days**
+- Region water stress: **{water.water_stress_label}** (WRI index {water.water_stress_index}/5.0)
             """)
 
-        # Forecast section
-        st.markdown("---")
-        st.markdown("**Heat Forecast for Upcoming Jobs**")
-        st.markdown("Enter your queued training jobs to predict water yield:")
-
-        n_jobs = st.number_input("Number of queued jobs", 1, 10, 3)
+        st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+        st.markdown("**Heat forecast for queued jobs**")
+        n_jobs = st.number_input("Number of queued jobs", 1, 10, 2)
         jobs = []
         for i in range(int(n_jobs)):
             c1, c2, c3 = st.columns(3)
-            with c1:
-                name = st.text_input(f"Job {i+1} name", value=f"training_job_{i+1}", key=f"jn{i}")
-            with c2:
-                dur = st.number_input(f"Duration (hours)", 0.5, 72.0, 2.0, key=f"jd{i}")
-            with c3:
-                pwr = st.number_input(f"Est. GPU power (W)", 50, 1000, 300, key=f"jp{i}")
-            jobs.append({"name": name, "estimated_duration_s": dur * 3600,
-                         "estimated_power_w": pwr})
-
-        if st.button("Forecast water yield"):
-            forecast = bridge.forecast_heat(jobs)
-            st.markdown(f"""
-**Forecast results:**
-- Total compute energy: **{forecast.predicted_energy_kwh:.3f} kWh**
-- Heat recovered by AquaTensor: **{forecast.predicted_heat_kwh:.3f} kWh**
-- Predicted water production: **{forecast.predicted_water_liters:.1f} liters**
-- MD viable at current temperature: **{"Yes" if forecast.temperature_sustained else "No"}**
-
-**Recommendation:** {forecast.optimal_schedule_recommendation}
-            """)
+            with c1: name = st.text_input(f"Job {i+1}", value=f"job_{i+1}", key=f"jn{i}")
+            with c2: dur  = st.number_input("Duration (h)", 0.5, 72.0, 2.0, key=f"jd{i}")
+            with c3: pwr  = st.number_input("GPU power (W)", 50, 1000, 300, key=f"jp{i}")
+            jobs.append({"name": name, "estimated_duration_s": dur*3600, "estimated_power_w": pwr})
+        if st.button("Forecast"):
+            fc = bridge.forecast_heat(jobs)
+            c1, c2, c3 = st.columns(3)
+            with c1: kpi("Predicted Energy", f"{fc.predicted_energy_kwh:.3f} kWh", neutral=True)
+            with c2: kpi("Heat Recovered", f"{fc.predicted_heat_kwh:.3f} kWh", neutral=True)
+            with c3: kpi("Water Predicted", f"{fc.predicted_water_liters:.2f} L", good=True)
+            st.markdown(f"**Recommendation:** {fc.optimal_schedule_recommendation}")
     else:
-        st.info("Load metrics from the sidebar to see water calculations.")
+        st.markdown('<div class="info-box">Load metrics to see water calculations.</div>',
+                    unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("**The AquaTensor + GreenTensor Loop**")
-    st.markdown("""
-```
-AI Training Job
-      |
-      v
-GreenTensor measures real GPU power (W)
-      |
-      v
-Heat generated = Power consumed (conservation of energy)
-      |
-      v
-AquaTensor captures waste heat via liquid cooling loop
-      |
-      v
-Membrane distillation converts heat to fresh water
-      |
-      v
-GreenTensor reports: energy used, CO2 emitted, water produced
-      |
-      v
-Net environmental impact: less carbon, more water
-```
-    """)
-
-
+# ── Datacenter Impact ─────────────────────────────────────────────────────────
 elif page == "Datacenter Impact":
     st.markdown('<div class="section-title">Datacenter Impact</div>', unsafe_allow_html=True)
-    st.markdown("""
-When your training runs inside a datacenter — cloud VM, HPC cluster, or on-premise DC —
-the actual energy consumed is higher than what your GPU reports. Cooling systems, UPS,
-lighting, and networking all add overhead. GreenTensor accounts for this using two factors:
+    st.markdown("GPU energy measurements don't include datacenter overhead. PUE and regional carbon intensity scale your raw measurements to real-world impact.")
 
-**PUE (Power Usage Effectiveness)** — the ratio of total DC power to IT equipment power.
-A PUE of 1.5 means for every 1W your GPU uses, the datacenter uses 1.5W in total.
-
-**Carbon intensity** — how much CO2 your region's electricity grid produces per kWh.
-A datacenter in Norway (hydro-heavy grid) has far lower emissions than one in Poland (coal-heavy).
-    """)
-
-    st.markdown("---")
-    st.markdown("**Configure your datacenter**")
-
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        preset_label = st.selectbox(
-            "DC type (sets PUE automatically)",
-            options=[
-                "local_workstation  — PUE 1.0 (no DC overhead)",
-                "hyperscale         — PUE 1.1 (Google / Microsoft / Meta)",
-                "cloud_average      — PUE 1.2 (AWS / GCP / Azure average)",
-                "enterprise_dc      — PUE 1.5 (typical on-premise DC)",
-                "legacy_dc          — PUE 1.8 (older / inefficient DC)",
-                "custom             — enter your own PUE",
-            ]
-        )
+        preset_label = st.selectbox("DC type", [
+            "local_workstation  — PUE 1.0 (no DC overhead)",
+            "hyperscale         — PUE 1.1 (Google / Microsoft / Meta)",
+            "cloud_average      — PUE 1.2 (AWS / GCP / Azure average)",
+            "enterprise_dc      — PUE 1.5 (typical on-premise DC)",
+            "legacy_dc          — PUE 1.8 (older / inefficient DC)",
+            "custom             — enter your own PUE",
+        ])
         preset_key = preset_label.split()[0]
-        preset_pue = PUE_PRESETS.get(preset_key, 1.2)
-
-        if preset_key == "custom":
-            pue = st.number_input("Custom PUE", min_value=1.0, max_value=3.0, value=1.2, step=0.05)
-        else:
-            pue = preset_pue
-            st.info(f"PUE set to {pue}")
-
-        num_nodes = st.number_input(
-            "Number of training nodes",
-            min_value=1, max_value=1024, value=1, step=1,
-            help="For distributed training across multiple GPUs/machines. Single machine = 1."
-        )
+        pue = st.number_input("Custom PUE", 1.0, 3.0, PUE_PRESETS.get(preset_key, 1.2), 0.05) \
+              if preset_key == "custom" else PUE_PRESETS.get(preset_key, 1.2)
+        if preset_key != "custom":
+            st.markdown(f'<div class="info-box">PUE set to <strong>{pue}</strong></div>',
+                        unsafe_allow_html=True)
+        num_nodes = st.number_input("Training nodes", 1, 1024, 1)
 
     with col2:
-        st.markdown("**Regional carbon intensity (kg CO2 per kWh)**")
-        st.markdown("""
-Find your value at [electricitymap.org](https://app.electricitymap.org)
+        st.markdown("**Regional carbon intensity** — find yours at [electricitymap.org](https://app.electricitymap.org)")
+        st.dataframe(pd.DataFrame([
+            {"Region": r, "kg CO2/kWh": v} for r, v in
+            [("Norway (hydro)", 0.017), ("France (nuclear)", 0.056),
+             ("UK average", 0.233), ("World average", 0.233),
+             ("USA average", 0.386), ("Australia", 0.490), ("Poland (coal)", 0.635)]
+        ]), use_container_width=True, hide_index=True)
+        carbon_intensity = st.number_input("Carbon intensity (kg CO2/kWh)",
+                                           0.0, 2.0, 0.000233, format="%.6f")
 
-Common values:
-| Region | kg CO2 / kWh |
-|--------|-------------|
-| Norway (hydro) | 0.017 |
-| France (nuclear) | 0.056 |
-| UK average | 0.233 |
-| World average | 0.233 |
-| USA average | 0.386 |
-| Australia | 0.490 |
-| Poland (coal) | 0.635 |
-        """)
-        carbon_intensity = st.number_input(
-            "Carbon intensity (kg CO2 / kWh)",
-            min_value=0.0, max_value=2.0,
-            value=0.000233, format="%.6f",
-            help="World average is 0.000233. Use electricitymap.org for your DC region."
-        )
-        dc_name = st.text_input("Datacenter name (optional)", value="My DC")
-
-    dc_config = DatacenterConfig(
-        pue=pue,
-        carbon_intensity_kg_per_kwh=carbon_intensity,
-        num_nodes=int(num_nodes),
-        dc_name=dc_name or "custom",
-    )
-
-    st.markdown("---")
+    dc_config = DatacenterConfig(pue=pue, carbon_intensity_kg_per_kwh=carbon_intensity,
+                                  num_nodes=int(num_nodes))
 
     if not baseline_metrics:
-        st.info("No run data loaded. Go to the sidebar and load metrics first.")
+        st.markdown('<div class="info-box">Load metrics to see datacenter impact.</div>',
+                    unsafe_allow_html=True)
     else:
         b_dc = baseline_metrics.apply_datacenter_config(dc_config)
         o_dc = optimized_metrics.apply_datacenter_config(dc_config) if optimized_metrics else None
 
-        st.markdown("**Datacenter-adjusted energy for baseline run**")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            metric_card("Raw GPU Energy", f"{baseline_metrics.energy_kwh:.6f} kWh")
-        with col2:
-            metric_card("PUE Multiplier", f"x {pue}")
-        with col3:
-            metric_card("Nodes", f"x {int(num_nodes)}")
-        with col4:
-            metric_card("Total DC Energy", f"{b_dc.energy_kwh_dc:.6f} kWh",
-                        delta=f"+{((b_dc.energy_kwh_dc / baseline_metrics.energy_kwh) - 1) * 100:.0f}% overhead",
-                        delta_good=False)
-
-        st.markdown(f"**Total DC CO2 emissions: {b_dc.emissions_kg_dc:.6f} kg**")
-        st.caption(f"Calculated as: {baseline_metrics.energy_kwh:.6f} kWh x PUE {pue} x {int(num_nodes)} nodes x {carbon_intensity:.6f} kg/kWh")
+        st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: kpi("Raw GPU Energy", f"{baseline_metrics.energy_kwh:.6f} kWh", neutral=True)
+        with c2: kpi("PUE Multiplier", f"x {pue}", neutral=True)
+        with c3: kpi("Nodes", f"x {int(num_nodes)}", neutral=True)
+        overhead = ((b_dc.energy_kwh_dc / baseline_metrics.energy_kwh) - 1) * 100 if baseline_metrics.energy_kwh > 0 else 0
+        with c4: kpi("Total DC Energy", f"{b_dc.energy_kwh_dc:.6f} kWh",
+                     delta=f"+{overhead:.0f}% overhead", good=False)
 
         if o_dc:
-            st.markdown("---")
-            st.markdown("**Savings with datacenter overhead applied**")
             savings_dc = calculate_savings(b_dc, o_dc, use_dc_adjusted=True)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                metric_card("DC Energy Reduction", f"{savings_dc['energy_reduction_pct']:.1f}%",
-                            delta="vs baseline", delta_good=True)
-            with col2:
-                metric_card("DC Energy Saved", f"{savings_dc['energy_saved_kwh']:.6f} kWh",
-                            delta_good=True)
-            with col3:
-                metric_card("DC CO2 Saved", f"{savings_dc['emissions_saved_kg']:.6f} kg",
-                            delta_good=True)
+            st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+            st.markdown("**DC-adjusted savings**")
+            c1, c2, c3 = st.columns(3)
+            with c1: kpi("DC Energy Reduction", f"{savings_dc['energy_reduction_pct']:.1f}%", good=True)
+            with c2: kpi("DC Energy Saved", f"{savings_dc['energy_saved_kwh']:.6f} kWh", good=True)
+            with c3: kpi("DC CO2 Saved", f"{savings_dc['emissions_saved_kg']:.6f} kg", good=True)
+            st.bar_chart(pd.DataFrame(
+                {"DC Energy (kWh)": [b_dc.energy_kwh_dc, o_dc.energy_kwh_dc]},
+                index=["Baseline (DC)", "Optimized (DC)"]))
 
-            st.markdown("**DC-adjusted energy comparison**")
-            st.bar_chart(pd.DataFrame({
-                "DC Energy (kWh)": [b_dc.energy_kwh_dc, o_dc.energy_kwh_dc]
-            }, index=["Baseline (DC)", "Optimized (DC)"]))
-
-            st.markdown("**Raw vs DC-adjusted comparison**")
-            st.dataframe(pd.DataFrame([
-                {"Metric": "Baseline raw energy (kWh)",      "Value": baseline_metrics.energy_kwh},
-                {"Metric": "Baseline DC energy (kWh)",       "Value": b_dc.energy_kwh_dc},
-                {"Metric": "Optimized raw energy (kWh)",     "Value": optimized_metrics.energy_kwh},
-                {"Metric": "Optimized DC energy (kWh)",      "Value": o_dc.energy_kwh_dc},
-                {"Metric": "DC energy saved (kWh)",          "Value": savings_dc["energy_saved_kwh"]},
-                {"Metric": "DC CO2 saved (kg)",              "Value": savings_dc["emissions_saved_kg"]},
-                {"Metric": "Reduction (%)",                  "Value": f"{savings_dc['energy_reduction_pct']:.1f}%"},
-            ]).set_index("Metric"), use_container_width=True)
-
-
+# ── ESG Report ────────────────────────────────────────────────────────────────
 elif page == "ESG Report":
     st.markdown('<div class="section-title">ESG Report — Scope 2 Emissions</div>', unsafe_allow_html=True)
-    st.markdown("""
-This page generates a structured ESG report covering Scope 2 carbon emissions
-from your AI/ML workloads, aligned with GHG Protocol, SEC climate disclosure rules,
-and EU CSRD requirements.
-    """)
+    st.markdown("Auto-generates a Scope 2 emissions report aligned with GHG Protocol, SEC climate disclosure, and EU CSRD.")
 
-    st.markdown("**Organization details**")
     col1, col2 = st.columns(2)
     with col1:
         org_name = st.text_input("Organization name", value="My Organization")
-        reporting_period = st.text_input("Reporting period", value="FY2025")
+        reporting_period = st.text_input("Reporting period", value="FY2026")
         region = st.text_input("Region", value="US-East")
     with col2:
-        carbon_intensity = st.number_input("Grid carbon intensity (kg CO2/kWh)",
-                                           value=0.000233, format="%.6f")
-        reporting_standard = st.selectbox("Reporting standard", [
-            "GHG Protocol Scope 2",
-            "SEC Climate Disclosure Rules",
-            "EU CSRD",
-            "ISO 14064-1",
-        ])
+        carbon_intensity = st.number_input("Grid carbon intensity (kg CO2/kWh)", value=0.000233, format="%.6f")
+        reporting_standard = st.selectbox("Standard", [
+            "GHG Protocol Scope 2", "SEC Climate Disclosure Rules", "EU CSRD", "ISO 14064-1"])
         contact = st.text_input("Contact email (optional)", value="")
 
-    st.markdown("---")
-    st.markdown("**Add runs to this report**")
-
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
     history = RunHistory()
     records = history.all()
 
     if records:
-        st.markdown(f"Found {len(records)} run(s) in local history.")
+        st.markdown(f"**{len(records)} run(s) in local history**")
         df_hist = pd.DataFrame(records)
-        st.dataframe(df_hist[["datetime", "model_name", "stage",
-                               "energy_kwh", "emissions_kg", "duration_s"]],
+        st.dataframe(df_hist[["datetime", "model_name", "stage", "energy_kwh", "emissions_kg", "duration_s"]],
                      use_container_width=True, hide_index=True)
     elif baseline_metrics:
-        st.info("No run history file found. Using currently loaded metrics.")
+        st.markdown('<div class="info-box">No run history. Using currently loaded metrics.</div>',
+                    unsafe_allow_html=True)
     else:
-        st.info("No run data available. Load metrics or run training scripts first.")
+        st.markdown('<div class="info-box">No run data. Load metrics or run training scripts first.</div>',
+                    unsafe_allow_html=True)
 
     if st.button("Generate ESG Report", type="primary"):
-        org = ESGOrganization(
-            name=org_name,
-            reporting_period=reporting_period,
-            region=region,
-            carbon_intensity_kg_per_kwh=carbon_intensity,
-            reporting_standard=reporting_standard,
-            contact_email=contact,
-        )
+        org = ESGOrganization(name=org_name, reporting_period=reporting_period, region=region,
+                              carbon_intensity_kg_per_kwh=carbon_intensity,
+                              reporting_standard=reporting_standard, contact_email=contact)
         reporter = ESGReporter(org)
-
-        # Add from history
         for r in records:
-            from greentensor.report.esg import ESGRunRecord
             reporter._runs.append(ESGRunRecord(
-                run_id=r.get("datetime", ""),
-                timestamp=r.get("timestamp", 0),
-                model_name=r.get("model_name", "unknown"),
-                stage=r.get("stage", "training"),
-                duration_s=r.get("duration_s", 0),
-                energy_kwh=r.get("energy_kwh", 0),
-                emissions_kg=r.get("emissions_kg", 0),
-            ))
-
-        # Add currently loaded metrics if no history
+                run_id=r.get("datetime", ""), timestamp=r.get("timestamp", 0),
+                model_name=r.get("model_name", "unknown"), stage=r.get("stage", "training"),
+                duration_s=r.get("duration_s", 0), energy_kwh=r.get("energy_kwh", 0),
+                emissions_kg=r.get("emissions_kg", 0)))
         if not records and baseline_metrics:
-            from greentensor.report.esg import ESGRunRecord
-            import time as _time
             reporter._runs.append(ESGRunRecord(
-                run_id="loaded_baseline",
-                timestamp=_time.time(),
-                model_name="loaded_model",
-                stage="training",
-                duration_s=baseline_metrics.duration_s,
-                energy_kwh=baseline_metrics.energy_kwh,
-                emissions_kg=baseline_metrics.emissions_kg,
-            ))
-
+                run_id="loaded", timestamp=_time.time(), model_name="loaded_model",
+                stage="training", duration_s=baseline_metrics.duration_s,
+                energy_kwh=baseline_metrics.energy_kwh, emissions_kg=baseline_metrics.emissions_kg))
         report = reporter.generate_report()
-
-        st.markdown("---")
-        st.markdown("**Generated Report**")
-        st.code(report.to_text(), language=None)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                "Download JSON report",
-                data=report.to_json(),
-                file_name=f"greentensor_esg_{reporting_period.replace(' ', '_')}.json",
-                mime="application/json",
-            )
-        with col2:
-            st.download_button(
-                "Download text report",
-                data=report.to_text(),
-                file_name=f"greentensor_esg_{reporting_period.replace(' ', '_')}.txt",
-                mime="text/plain",
-            )
-
-        # Summary metrics
-        st.markdown("**Summary**")
+        st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Runs", report.total_runs)
         c2.metric("Total Energy (DC)", f"{report.total_energy_kwh_dc:.4f} kWh")
         c3.metric("Total CO2 (DC)", f"{report.total_emissions_kg_dc:.4f} kg")
         c4.metric("Equiv. km driven", f"{report.emissions_equiv_km_driven:.1f}")
+        st.code(report.to_text(), language=None)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button("Download JSON", data=report.to_json(),
+                               file_name=f"greentensor_esg_{reporting_period.replace(' ','_')}.json",
+                               mime="application/json")
+        with col2:
+            st.download_button("Download text", data=report.to_text(),
+                               file_name=f"greentensor_esg_{reporting_period.replace(' ','_')}.txt",
+                               mime="text/plain")
 
-
+# ── Run History ───────────────────────────────────────────────────────────────
 elif page == "Run History":
     st.markdown('<div class="section-title">Run History</div>', unsafe_allow_html=True)
-    st.markdown("All training and inference runs recorded by GreenTensor on this machine.")
-
     history = RunHistory()
     records = history.all()
 
     if not records:
-        st.info("No run history yet. Runs are recorded automatically when you use GreenTensor.")
-        st.markdown("To record a run manually after loading metrics:")
-        st.code("""
+        st.markdown('<div class="info-box">No run history yet. Runs are recorded automatically when you use GreenTensor.</div>',
+                    unsafe_allow_html=True)
+        st.code("""from greentensor import GreenTensor
 from greentensor.core.history import RunHistory
-from greentensor import GreenTensor
-
-history = RunHistory()
 
 with GreenTensor() as gt:
     train()
 
-history.record(gt.metrics, model_name="MyModel", stage="training")
-        """)
+RunHistory().record(gt.metrics, model_name="MyModel", stage="training")""")
     else:
-        df = pd.DataFrame(records)
         st.markdown(f"**{len(records)} runs recorded**")
-
-        st.dataframe(
-            df[["datetime", "model_name", "stage", "duration_s",
-                "energy_kwh", "emissions_kg", "idle_seconds"]].rename(columns={
-                "datetime": "Date",
-                "model_name": "Model",
-                "stage": "Stage",
-                "duration_s": "Duration (s)",
-                "energy_kwh": "Energy (kWh)",
-                "emissions_kg": "CO2 (kg)",
-                "idle_seconds": "Idle (s)",
-            }),
-            use_container_width=True,
-            hide_index=True,
-        )
-
+        df = pd.DataFrame(records)
+        st.dataframe(df[["datetime", "model_name", "stage", "duration_s",
+                          "energy_kwh", "emissions_kg", "idle_seconds"]].rename(columns={
+            "datetime": "Date", "model_name": "Model", "stage": "Stage",
+            "duration_s": "Duration (s)", "energy_kwh": "Energy (kWh)",
+            "emissions_kg": "CO2 (kg)", "idle_seconds": "Idle (s)",
+        }), use_container_width=True, hide_index=True)
         st.markdown("**Energy over time**")
         st.line_chart(df.set_index("datetime")["energy_kwh"])
-
         st.markdown("**CO2 over time**")
         st.line_chart(df.set_index("datetime")["emissions_kg"])
-
         if st.button("Clear history"):
             history.clear()
-            st.success("History cleared.")
             st.rerun()
 
-
+# ── Security Report ───────────────────────────────────────────────────────────
 elif page == "Security Report":
     st.markdown('<div class="section-title">Security Report</div>', unsafe_allow_html=True)
     st.markdown("""
-GreenTensor monitors the GPU power draw continuously during training.
-Anomalous patterns in the carbon footprint signal potential threats in the MLOps pipeline.
+GreenTensor monitors GPU power draw continuously during training. Anomalous patterns in the carbon footprint signal potential ML pipeline attacks.
 
 **Detection methods:**
-- **alibi-detect SpectralResidual** — statistical frequency-domain analysis of the power time series. Flags points that deviate from the expected pattern, not just a fixed threshold.
-- **Threshold detector** — fallback when alibi-detect is unavailable. Alerts when power exceeds baseline by a configurable percentage.
-- **LLM Guard** — scans model inputs for prompt injection and secrets, and model outputs for sensitive data leakage.
+- **alibi-detect SpectralResidual** — frequency-domain statistical anomaly detection on the power time series (same algorithm as Microsoft Azure Metrics Advisor)
+- **Threshold detector** — fallback when alibi-detect is unavailable
+- **LLM Guard** — scans model inputs for prompt injection and outputs for data leakage
 
 **Threat types detected:**
 
-| Threat | What it means |
-|--------|---------------|
-| `power_spike` | Sudden energy surge — possible cryptominer injected into the pipeline |
-| `idle_drain` | GPU consuming power while idle — possible hidden background process or data exfiltration |
-| `prompt_injection` | Adversarial input targeting the model — detected by LLM Guard |
-| `data_leakage` | Sensitive data in model output — detected by LLM Guard |
+| Threat | Signal | MITRE ATLAS |
+|--------|--------|-------------|
+| Cryptominer injection | Power spike + new process | AML.T0011 |
+| Data exfiltration | Idle drain + outbound connection | AML.T0024 |
+| Backdoor trigger | Inference latency spike | AML.T0043 |
+| Model extraction | High-frequency API probing | AML.T0044 |
+| Model tampering | SHA-256 hash mismatch | AML.T0018 |
+| Supply chain attack | Typosquatted package detected | AML.T0010 |
     """)
 
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+
     if not security_alerts:
-        st.markdown('<div class="clean-badge">CLEAN — No threats detected in this session</div>', unsafe_allow_html=True)
+        st.markdown('<span class="clean-badge">CLEAN — No threats detected in this session</span>',
+                    unsafe_allow_html=True)
         st.markdown("")
-        st.markdown("Security alerts appear here automatically when GreenTensor detects anomalous energy patterns during a live training run.")
+        st.markdown('<div class="info-box">Security alerts appear here automatically when GreenTensor detects anomalous energy patterns during a live training run. Use the <strong>Observability Dashboard</strong> to see live detection.</div>',
+                    unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="threat-badge">THREATS DETECTED — {len(security_alerts)} alert(s)</div>', unsafe_allow_html=True)
-        st.markdown("")
+        st.markdown(f'<span class="threat-badge">THREATS DETECTED — {len(security_alerts)} alert(s)</span>',
+                    unsafe_allow_html=True)
         for a in security_alerts:
-            css = f"alert-{a.severity}"
+            css = f"alert-{a.severity} alert-card"
             st.markdown(f"""
             <div class="{css}">
-                <span class="tag tag-type">{a.alert_type.upper()}</span>
-                <span class="tag tag-source">{a.source}</span>
-                <strong>{a.severity.upper()}</strong><br>
-                {a.message}
+              <span class="tag tag-type">{a.alert_type.upper()}</span>
+              <span class="tag tag-source">{a.source}</span>
+              <strong>{a.severity.upper()}</strong><br>
+              {a.message}
             </div>""", unsafe_allow_html=True)
 
-
+# ── How It Works ──────────────────────────────────────────────────────────────
 elif page == "How It Works":
     st.markdown('<div class="section-title">How GreenTensor Works</div>', unsafe_allow_html=True)
     st.markdown("""
-**What is GreenTensor?**
-
-GreenTensor is a Python middleware package for PyTorch ML workloads.
-It wraps your existing training code with one context manager and adds four capabilities
-without requiring any changes to your model or training logic.
-
----
-
-**Usage**
+**One wrapper. Five capabilities. Zero code changes.**
 
 ```python
 from greentensor import GreenTensor
@@ -818,64 +627,58 @@ with GreenTensor() as gt:
 
 ---
 
-**What happens inside the context manager**
+**What happens when you enter the context manager:**
 
-When you enter `with GreenTensor()`:
+1. **GPU optimizer** — enables cuDNN benchmark mode and FP16 mixed precision. 20-40% energy reduction on Tensor Core GPUs.
+2. **Idle optimizer** — background thread samples GPU utilization every 0.5s. Surfaces data pipeline bottlenecks.
+3. **Anomaly detector** — samples GPU power every second. Builds a rolling baseline and flags deviations using SpectralResidual (alibi-detect).
+4. **Digital footprint scanner** — monitors processes, network connections, and model file hashes for attack signals.
+5. **CodeCarbon tracker** — measures real energy via hardware counters. Falls back to nvidia-smi power sampling.
 
-1. GPU optimizer applies cuDNN benchmark mode and enables mixed precision (FP16).
-   This reduces memory usage and speeds up matrix operations on CUDA GPUs.
+**When you exit:**
 
-2. Idle optimizer starts a background thread sampling GPU utilization every 0.5 seconds.
-   If utilization drops below 10%, it records idle time to quantify wasted energy.
-
-3. Anomaly detector starts a second background thread sampling GPU power draw every second.
-   It builds a rolling baseline of normal power consumption and flags deviations.
-
-4. CodeCarbon starts tracking carbon emissions using your region's grid carbon intensity.
-   If CodeCarbon is unavailable, GreenTensor falls back to nvidia-smi power sampling.
-
-When you exit the context:
-
-5. All threads stop and measurements are collected.
-6. A RunMetrics object is created with duration, energy, emissions, and idle time.
-7. If a baseline RunMetrics was passed in, savings are calculated against real measured data.
-8. A report is printed to the terminal.
+6. All threads stop. A `RunMetrics` object is created with duration, energy, emissions, and idle time.
+7. If a baseline was passed in, savings are calculated against real measured data.
+8. A report is printed. Metrics are saved to `.pkl` for this dashboard.
 
 ---
 
-**The file upload in this dashboard**
+**The security detection pipeline:**
 
-When you run `train_baseline.py` or `train_optimized.py`, GreenTensor saves a
-`RunMetrics` object to a `.pkl` file using Python's pickle serialization.
-
-That file contains exactly four values:
-- `duration_s` — wall-clock time of the run
-- `energy_kwh` — energy measured by CodeCarbon or nvidia-smi
-- `emissions_kg` — CO2 calculated from energy and grid carbon intensity
-- `idle_seconds` — time the GPU spent below the utilization threshold
-
-When you upload that file here, the dashboard deserializes it back into a `RunMetrics`
-object, computes the savings between baseline and optimized, and renders the charts.
-
-You can also create a `.json` file manually with the same four fields if you want to
-enter data from an external source or a different tool.
+```
+GPU power sample (every 1s)
+        |
+        v
+SpectralResidual anomaly detection
+        |
+   spike detected?
+        |
+        v
+Pattern matcher correlates with:
+  - active processes (psutil)
+  - network connections (psutil)
+  - inference latency history
+  - model file hashes (SHA-256)
+        |
+        v
+Threat score 0-100
+Verdict: BENIGN / SUSPICIOUS / ATTACK
+MITRE ATLAS technique ID
+Recommended action
+        |
+        v
+Slack / PagerDuty webhook alert
+```
 
 ---
 
-**Security monitoring**
-
-The anomaly detector uses the SpectralResidual algorithm from alibi-detect (Apache 2.0).
-This is the same algorithm Microsoft uses in Azure Metrics Advisor for production anomaly detection.
-
-It works by computing the Fourier transform of the power time series, removing the
-expected frequency components, and flagging residuals that exceed a threshold.
-This catches subtle, sustained anomalies that a simple threshold would miss.
-
-LLM Guard (MIT, by Protect AI) adds a second layer by scanning model inputs and outputs
-for prompt injection patterns, leaked secrets, and sensitive data.
-
-Install the full security stack with:
+**Install:**
 ```bash
+pip install greentensor
+
+# Full security stack (alibi-detect + LLM Guard)
 pip install greentensor[security]
 ```
+
+**GitHub:** [DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps](https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps)
     """)

@@ -1,13 +1,8 @@
 """
-GreenTensor Observability Dashboard
-
-Live side-by-side view of:
-  - Carbon footprint / GPU power timeline
-  - Digital footprint / security signals
-  - Pattern matching verdict when a spike is detected
-
-Run with:
-    streamlit run dashboard/observability.py
+GreenTensor Live Observability Dashboard
+=========================================
+Real-time carbon footprint + ML security monitoring.
+Run with:  streamlit run dashboard/observability.py
 """
 import streamlit as st
 import pandas as pd
@@ -15,80 +10,172 @@ import time
 import random
 import math
 from datetime import datetime
-
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from greentensor.security.pattern_matcher import PatternMatcher
 
 st.set_page_config(
-    page_title="GreenTensor Observability",
+    page_title="GreenTensor — Live Observability",
+    page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Styles ────────────────────────────────────────────────────────────────────
+# ── Brand styles ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    .obs-header { font-size: 1.4rem; font-weight: 800; color: #212529;
-                  border-bottom: 3px solid #212529; padding-bottom: 0.5rem; margin-bottom: 1rem; }
-    .panel { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px;
-             padding: 1rem 1.2rem; margin-bottom: 0.8rem; }
-    .panel-title { font-size: 0.75rem; font-weight: 700; color: #6c757d;
-                   text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
-    .big-number { font-size: 2rem; font-weight: 800; color: #212529; }
-    .verdict-attack   { background:#fff0f0; border:2px solid #dc3545; border-radius:6px;
-                        padding:1rem; margin:0.5rem 0; }
-    .verdict-suspicious { background:#fff8f0; border:2px solid #fd7e14; border-radius:6px;
-                          padding:1rem; margin:0.5rem 0; }
-    .verdict-benign   { background:#f0fff4; border:2px solid #198754; border-radius:6px;
-                        padding:1rem; margin:0.5rem 0; }
-    .signal-active  { background:#fff3cd; border-left:3px solid #ffc107;
-                      padding:0.3rem 0.6rem; margin:0.2rem 0; border-radius:3px;
-                      font-size:0.82rem; }
-    .signal-clear   { background:#d1e7dd; border-left:3px solid #198754;
-                      padding:0.3rem 0.6rem; margin:0.2rem 0; border-radius:3px;
-                      font-size:0.82rem; }
-    .evidence-item  { font-size:0.82rem; color:#495057; padding:0.15rem 0; }
-    .score-bar-bg   { background:#e9ecef; border-radius:4px; height:12px; margin:0.3rem 0; }
-    .timeline-label { font-size:0.72rem; color:#6c757d; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+  .block-container { padding: 1.2rem 2rem 2rem; background: #0D1117; }
+  section[data-testid="stSidebar"] { background: #161B22 !important; }
+  section[data-testid="stSidebar"] * { color: #E6EDF3 !important; }
+
+  /* Header */
+  .gt-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0.6rem 0 1rem;
+    border-bottom: 1px solid #21262D;
+    margin-bottom: 1.2rem;
+  }
+  .gt-logo { font-size: 1.6rem; }
+  .gt-title { font-size: 1.4rem; font-weight: 800; color: #00C896; letter-spacing: -0.02em; }
+  .gt-subtitle { font-size: 0.78rem; color: #8B949E; margin-top: 1px; }
+  .gt-badge {
+    margin-left: auto; background: #0D2137; border: 1px solid #00C896;
+    color: #00C896; font-size: 0.7rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 20px; letter-spacing: 0.05em;
+  }
+  .gt-badge-live { background: #1A2E1A; border-color: #00C896; color: #00C896; }
+  .gt-badge-paused { background: #2E1A1A; border-color: #FF5C5C; color: #FF5C5C; }
+
+  /* KPI cards */
+  .kpi-row { display: flex; gap: 12px; margin-bottom: 1.2rem; }
+  .kpi-card {
+    flex: 1; background: #161B22; border: 1px solid #21262D;
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .kpi-label { font-size: 0.68rem; font-weight: 600; color: #8B949E;
+               text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .kpi-value { font-size: 1.8rem; font-weight: 800; color: #E6EDF3; line-height: 1; }
+  .kpi-delta { font-size: 0.75rem; font-weight: 600; margin-top: 4px; }
+  .kpi-green { color: #00C896; }
+  .kpi-red   { color: #FF5C5C; }
+  .kpi-amber { color: #F5A623; }
+  .kpi-blue  { color: #4A9EFF; }
+
+  /* Panel */
+  .panel {
+    background: #161B22; border: 1px solid #21262D;
+    border-radius: 8px; padding: 16px 18px; margin-bottom: 12px;
+  }
+  .panel-title {
+    font-size: 0.72rem; font-weight: 700; color: #8B949E;
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+  }
+
+  /* Verdict cards */
+  .verdict-attack {
+    background: #1A0A0A; border: 1.5px solid #FF5C5C;
+    border-radius: 8px; padding: 14px 16px; margin: 8px 0;
+  }
+  .verdict-suspicious {
+    background: #1A1200; border: 1.5px solid #F5A623;
+    border-radius: 8px; padding: 14px 16px; margin: 8px 0;
+  }
+  .verdict-benign {
+    background: #0A1A0A; border: 1.5px solid #00C896;
+    border-radius: 8px; padding: 14px 16px; margin: 8px 0;
+  }
+  .verdict-title { font-size: 1.1rem; font-weight: 800; letter-spacing: 0.02em; }
+  .verdict-attack   .verdict-title { color: #FF5C5C; }
+  .verdict-suspicious .verdict-title { color: #F5A623; }
+  .verdict-benign   .verdict-title { color: #00C896; }
+
+  /* Score bar */
+  .score-track { background: #21262D; border-radius: 4px; height: 8px; margin: 8px 0; overflow: hidden; }
+  .score-fill  { height: 8px; border-radius: 4px; transition: width 0.3s ease; }
+
+  /* Signal pills */
+  .sig-active {
+    display: inline-block; background: #2E1A00; border: 1px solid #F5A623;
+    color: #F5A623; font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 4px; margin: 2px 3px 2px 0; letter-spacing: 0.04em;
+  }
+  .sig-clear {
+    display: inline-block; background: #161B22; border: 1px solid #21262D;
+    color: #8B949E; font-size: 0.68rem; padding: 2px 8px;
+    border-radius: 4px; margin: 2px 3px 2px 0;
+  }
+
+  /* Alert banner */
+  .alert-attack {
+    background: #1A0A0A; border-left: 4px solid #FF5C5C;
+    padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 6px 0;
+  }
+  .alert-warn {
+    background: #1A1200; border-left: 4px solid #F5A623;
+    padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 6px 0;
+  }
+  .alert-ok {
+    background: #0A1A0A; border-left: 4px solid #00C896;
+    padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 6px 0;
+  }
+  .alert-text { font-size: 0.82rem; color: #E6EDF3; }
+  .alert-action { font-size: 0.78rem; font-weight: 700; margin-top: 4px; }
+
+  /* Evidence list */
+  .evidence { font-size: 0.78rem; color: #8B949E; line-height: 1.7; }
+  .evidence strong { color: #E6EDF3; }
+
+  /* Mitre tag */
+  .mitre-tag {
+    display: inline-block; background: #0D2137; border: 1px solid #4A9EFF;
+    color: #4A9EFF; font-size: 0.65rem; font-weight: 700; padding: 1px 7px;
+    border-radius: 3px; margin-right: 4px; letter-spacing: 0.04em;
+  }
+
+  /* Divider */
+  .gt-divider { border: none; border-top: 1px solid #21262D; margin: 1rem 0; }
+
+  /* Streamlit overrides */
+  .stButton > button {
+    background: #00C896 !important; color: #0D1117 !important;
+    font-weight: 700 !important; border: none !important;
+    border-radius: 6px !important;
+  }
+  .stButton > button:hover { background: #00A87E !important; }
+  [data-testid="stMetricValue"] { color: #E6EDF3 !important; }
+  .stDataFrame { background: #161B22 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ── Session state ─────────────────────────────────────────────────────────────
-if "power_history" not in st.session_state:
-    st.session_state.power_history = []
-if "co2_history" not in st.session_state:
-    st.session_state.co2_history = []
-if "time_history" not in st.session_state:
-    st.session_state.time_history = []
-if "signal_history" not in st.session_state:
-    st.session_state.signal_history = []
-if "match_results" not in st.session_state:
-    st.session_state.match_results = []
-if "tick" not in st.session_state:
-    st.session_state.tick = 0
-if "attack_injected" not in st.session_state:
-    st.session_state.attack_injected = False
-if "attack_type_injected" not in st.session_state:
-    st.session_state.attack_type_injected = None
+defaults = {
+    "power_history": [], "co2_history": [], "time_history": [],
+    "signal_history": [], "match_results": [], "tick": 0,
+    "attack_injected": False, "attack_type_injected": None,
+    "alert_log": [],
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 matcher = PatternMatcher()
 
-# ── Sidebar controls ──────────────────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### GreenTensor Observability")
-    st.markdown("Live carbon + security monitoring")
+    st.markdown("### 🌿 GreenTensor")
+    st.markdown("**Live Observability Dashboard**")
+    st.markdown("Carbon-Secure MLOps · v0.7.1")
     st.markdown("---")
 
-    st.markdown("**Simulation Controls**")
-    auto_refresh = st.toggle("Live mode (auto-refresh)", value=False)
+    st.markdown("**Live Mode**")
+    auto_refresh = st.toggle("Auto-refresh", value=False)
     refresh_rate = st.slider("Refresh interval (s)", 1, 5, 2)
 
     st.markdown("---")
     st.markdown("**Inject Attack Scenario**")
+    st.caption("Simulate a real ML pipeline attack to see detection in action.")
     attack_scenario = st.selectbox("Attack type", [
         "None",
         "Cryptominer injection",
@@ -96,62 +183,62 @@ with st.sidebar:
         "Backdoor trigger",
         "Model theft / extraction",
     ])
-    if st.button("Inject now", type="primary"):
+    if st.button("Inject attack now", type="primary"):
         st.session_state.attack_injected = True
         st.session_state.attack_type_injected = attack_scenario
 
-    if st.button("Reset simulation"):
-        for key in ["power_history", "co2_history", "time_history",
-                    "signal_history", "match_results", "tick",
-                    "attack_injected", "attack_type_injected"]:
-            del st.session_state[key]
+    if st.button("Clear attack / reset"):
+        st.session_state.attack_injected = False
+        st.session_state.attack_type_injected = None
+
+    if st.button("Reset all data"):
+        for k in defaults:
+            st.session_state[k] = defaults[k] if not isinstance(defaults[k], list) else []
         st.rerun()
 
     st.markdown("---")
-    st.markdown("**Pattern Matching Thresholds**")
-    attack_threshold = st.slider("Attack threshold (score)", 50, 95, 80)
-    suspicious_threshold = st.slider("Suspicious threshold (score)", 20, 60, 50)
+    st.markdown("**Detection Thresholds**")
+    attack_threshold    = st.slider("Attack threshold",    50, 95, 80)
+    suspicious_threshold = st.slider("Suspicious threshold", 20, 60, 50)
 
     st.markdown("---")
-    st.markdown("v0.4.0 | Dhivya Balakumar")
+    st.markdown("**Webhook Alerts**")
+    slack_url = st.text_input("Slack webhook URL (optional)", placeholder="https://hooks.slack.com/...")
+    st.caption("Paste your Slack webhook to receive real alerts when attacks are detected.")
 
 
-# ── Simulate one tick of data ─────────────────────────────────────────────────
-def simulate_tick(tick: int, attack_injected: bool, attack_type: str):
-    """Generate one second of simulated GPU power, CO2, and security signals."""
-    base_power = 120.0 + 10 * math.sin(tick * 0.3)  # normal training oscillation
-    base_util = 75.0 + 5 * math.sin(tick * 0.2)
+# ── Simulate one tick ─────────────────────────────────────────────────────────
+def simulate_tick(tick, attack_injected, attack_type):
+    base_power = 120.0 + 10 * math.sin(tick * 0.3)
+    base_util  = 75.0  +  5 * math.sin(tick * 0.2)
     active_signals = []
     benign_context = []
 
-    if attack_injected and attack_type != "None":
+    if attack_injected and attack_type and attack_type != "None":
         if "Cryptominer" in attack_type:
             power = base_power + random.uniform(80, 140)
-            util = random.uniform(85, 99)
+            util  = random.uniform(85, 99)
             active_signals = ["power_spike_sustained", "new_process_spawned",
                               "high_gpu_util_unexpected", "no_training_activity"]
         elif "exfiltration" in attack_type:
             power = base_power + random.uniform(30, 60)
-            util = random.uniform(2, 8)
-            active_signals = ["idle_drain", "network_outbound_unknown",
-                              "low_gpu_util_high_power"]
+            util  = random.uniform(2, 8)
+            active_signals = ["idle_drain", "network_outbound_unknown", "low_gpu_util_high_power"]
         elif "Backdoor" in attack_type:
             power = base_power + random.uniform(20, 50)
-            util = random.uniform(60, 80)
-            active_signals = ["inference_latency_spike", "high_confidence_anomaly",
-                              "power_spike_brief"]
+            util  = random.uniform(60, 80)
+            active_signals = ["inference_latency_spike", "high_confidence_anomaly", "power_spike_brief"]
         elif "theft" in attack_type or "extraction" in attack_type:
             power = base_power + random.uniform(10, 30)
-            util = random.uniform(40, 70)
+            util  = random.uniform(40, 70)
             active_signals = ["high_frequency_probing", "systematic_input_patterns",
                               "network_outbound_unknown"]
         else:
             power = base_power + random.uniform(-5, 5)
-            util = base_util
+            util  = base_util
     else:
         power = base_power + random.uniform(-8, 8)
-        util = base_util + random.uniform(-3, 3)
-        # Occasional benign spikes
+        util  = base_util  + random.uniform(-3, 3)
         if tick % 15 == 0:
             power += random.uniform(15, 25)
             benign_context = ["checkpoint_saving"]
@@ -159,49 +246,40 @@ def simulate_tick(tick: int, attack_injected: bool, attack_type: str):
             power += random.uniform(10, 20)
             benign_context = ["evaluation_loop"]
 
-    # CO2 = power * time * carbon_intensity (world avg 0.000233 kg/Wh)
-    co2_rate = (power / 1000) * (1 / 3600) * 0.233  # kg per second
-
+    co2_rate = (power / 1000) * (1 / 3600) * 0.233
     return power, util, co2_rate, active_signals, benign_context
 
 
-# ── Run one tick ──────────────────────────────────────────────────────────────
+# ── Run tick ──────────────────────────────────────────────────────────────────
 tick = st.session_state.tick
 power, util, co2_rate, active_signals, benign_context = simulate_tick(
-    tick,
-    st.session_state.attack_injected,
-    st.session_state.attack_type_injected or "None"
+    tick, st.session_state.attack_injected, st.session_state.attack_type_injected or "None"
 )
-
 ts = datetime.now().strftime("%H:%M:%S")
 st.session_state.power_history.append(power)
-st.session_state.co2_history.append(co2_rate * 1e6)  # convert to µg/s for readability
+st.session_state.co2_history.append(co2_rate * 1e6)
 st.session_state.time_history.append(ts)
 st.session_state.signal_history.append(active_signals)
 st.session_state.tick += 1
 
-# Keep last 60 ticks
 MAX = 60
 for key in ["power_history", "co2_history", "time_history", "signal_history"]:
     if len(st.session_state[key]) > MAX:
         st.session_state[key] = st.session_state[key][-MAX:]
 
-# Compute rolling baseline (last 20 ticks, excluding current)
 history = st.session_state.power_history
-baseline_power = sum(history[-21:-1]) / len(history[-21:-1]) if len(history) > 5 else power
+baseline_power = sum(history[-21:-1]) / max(len(history[-21:-1]), 1) if len(history) > 5 else power
+delta_pct = ((power - baseline_power) / baseline_power * 100) if baseline_power > 0 else 0
 
-# Run pattern matcher if spike detected
+# Pattern match
 spike_detected = power > baseline_power * 1.3
 match_result = None
 if spike_detected and active_signals:
     match_result = matcher.match(
-        power_w=power,
-        baseline_power_w=baseline_power,
-        gpu_util_pct=util,
-        active_signals=active_signals,
+        power_w=power, baseline_power_w=baseline_power,
+        gpu_util_pct=util, active_signals=active_signals,
         benign_context=benign_context,
     )
-    # Override thresholds from sidebar
     if match_result.threat_score >= attack_threshold:
         match_result.verdict = "ATTACK"
     elif match_result.threat_score >= suspicious_threshold:
@@ -213,176 +291,260 @@ if spike_detected and active_signals:
     if len(st.session_state.match_results) > 20:
         st.session_state.match_results = st.session_state.match_results[-20:]
 
+    # Log alert
+    if match_result.verdict in ("ATTACK", "SUSPICIOUS"):
+        st.session_state.alert_log.append({
+            "time": ts,
+            "verdict": match_result.verdict,
+            "score": match_result.threat_score,
+            "type": match_result.attack_type or "unknown",
+            "action": match_result.recommended_action,
+        })
+        if len(st.session_state.alert_log) > 50:
+            st.session_state.alert_log = st.session_state.alert_log[-50:]
+
+    # Fire Slack webhook if configured
+    if slack_url and match_result.verdict == "ATTACK":
+        try:
+            import urllib.request, json as _json
+            payload = _json.dumps({
+                "text": (
+                    f":rotating_light: *GreenTensor ATTACK DETECTED*\n"
+                    f"*Type:* {match_result.attack_type}\n"
+                    f"*Score:* {match_result.threat_score}/100\n"
+                    f"*Power:* {power:.0f}W vs {baseline_power:.0f}W baseline ({delta_pct:+.1f}%)\n"
+                    f"*Action:* {match_result.recommended_action}"
+                )
+            }).encode()
+            req = urllib.request.Request(slack_url, data=payload,
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass
+
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="obs-header">GreenTensor Observability Dashboard</div>', unsafe_allow_html=True)
-st.caption(f"Last updated: {ts}  |  Tick: {tick}  |  Mode: {'LIVE' if auto_refresh else 'MANUAL'}")
+mode_badge = "gt-badge-live" if auto_refresh else "gt-badge-paused"
+mode_text  = "LIVE" if auto_refresh else "PAUSED"
+st.markdown(f"""
+<div class="gt-header">
+  <span class="gt-logo">🌿</span>
+  <div>
+    <div class="gt-title">GreenTensor Observability</div>
+    <div class="gt-subtitle">Carbon footprint + ML security · real-time monitoring</div>
+  </div>
+  <span class="gt-badge {mode_badge}">{mode_text}</span>
+</div>
+""", unsafe_allow_html=True)
+st.caption(f"Last tick: {ts}  ·  Tick #{tick}  ·  Baseline power: {baseline_power:.0f}W")
 
-# ── Top KPI row ───────────────────────────────────────────────────────────────
-k1, k2, k3, k4, k5 = st.columns(5)
-with k1:
-    st.markdown('<div class="panel"><div class="panel-title">GPU Power</div>'
-                f'<div class="big-number">{power:.0f}W</div></div>', unsafe_allow_html=True)
-with k2:
-    delta_pct = ((power - baseline_power) / baseline_power * 100) if baseline_power > 0 else 0
-    color = "#dc3545" if delta_pct > 30 else "#198754"
-    st.markdown(f'<div class="panel"><div class="panel-title">vs Baseline</div>'
-                f'<div class="big-number" style="color:{color}">{delta_pct:+.1f}%</div></div>',
-                unsafe_allow_html=True)
-with k3:
-    st.markdown(f'<div class="panel"><div class="panel-title">GPU Utilization</div>'
-                f'<div class="big-number">{util:.0f}%</div></div>', unsafe_allow_html=True)
-with k4:
-    total_co2 = sum(st.session_state.co2_history)
-    st.markdown(f'<div class="panel"><div class="panel-title">CO2 Rate (µg/s)</div>'
-                f'<div class="big-number">{co2_rate*1e6:.2f}</div></div>', unsafe_allow_html=True)
-with k5:
-    total_alerts = len([r for r in st.session_state.match_results if r.verdict != "BENIGN"])
-    alert_color = "#dc3545" if total_alerts > 0 else "#198754"
-    st.markdown(f'<div class="panel"><div class="panel-title">Security Alerts</div>'
-                f'<div class="big-number" style="color:{alert_color}">{total_alerts}</div></div>',
-                unsafe_allow_html=True)
+# ── KPI row ───────────────────────────────────────────────────────────────────
+total_alerts = len([r for r in st.session_state.match_results if r.verdict != "BENIGN"])
+attack_count = len([r for r in st.session_state.match_results if r.verdict == "ATTACK"])
+cumulative_co2_ug = sum(st.session_state.co2_history)
 
-st.markdown("---")
+delta_color = "kpi-red" if delta_pct > 30 else "kpi-amber" if delta_pct > 10 else "kpi-green"
+alert_color = "kpi-red" if total_alerts > 0 else "kpi-green"
 
-# ── Main panels: Carbon | Security ───────────────────────────────────────────
-left, right = st.columns(2)
+st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-label">GPU Power</div>
+    <div class="kpi-value">{power:.0f}<span style="font-size:1rem;font-weight:500;color:#8B949E">W</span></div>
+    <div class="kpi-delta {delta_color}">{delta_pct:+.1f}% vs baseline</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">GPU Utilization</div>
+    <div class="kpi-value">{util:.0f}<span style="font-size:1rem;font-weight:500;color:#8B949E">%</span></div>
+    <div class="kpi-delta kpi-blue">current</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">CO2 Rate</div>
+    <div class="kpi-value">{co2_rate*1e6:.2f}<span style="font-size:0.9rem;font-weight:500;color:#8B949E"> µg/s</span></div>
+    <div class="kpi-delta kpi-green">cumulative: {cumulative_co2_ug:.0f} µg</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Security Alerts</div>
+    <div class="kpi-value {alert_color}">{total_alerts}</div>
+    <div class="kpi-delta kpi-red">{attack_count} confirmed attack(s)</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Active Signals</div>
+    <div class="kpi-value {'kpi-red' if active_signals else 'kpi-green'}">{len(active_signals)}</div>
+    <div class="kpi-delta {'kpi-amber' if active_signals else 'kpi-green'}">
+      {'ANOMALY DETECTED' if active_signals else 'all clear'}
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Main panels ───────────────────────────────────────────────────────────────
+left, right = st.columns([3, 2], gap="medium")
 
 with left:
-    st.markdown("**Carbon Footprint Timeline**")
-
+    # Carbon timeline
+    st.markdown('<div class="panel-title">Carbon Footprint Timeline</div>', unsafe_allow_html=True)
     df_power = pd.DataFrame({
-        "Time": st.session_state.time_history,
         "Power (W)": st.session_state.power_history,
-        "Baseline": [baseline_power] * len(st.session_state.power_history),
-    }).set_index("Time")
-    st.line_chart(df_power, height=220)
+        "Baseline":  [baseline_power] * len(st.session_state.power_history),
+    }, index=st.session_state.time_history)
+    st.line_chart(df_power, height=200, use_container_width=True)
 
-    st.markdown("**CO2 Emission Rate (µg/s)**")
-    df_co2 = pd.DataFrame({
-        "Time": st.session_state.time_history,
-        "CO2 rate (µg/s)": st.session_state.co2_history,
-    }).set_index("Time")
-    st.line_chart(df_co2, height=160)
+    st.markdown('<div class="panel-title" style="margin-top:12px">CO2 Emission Rate (µg/s)</div>',
+                unsafe_allow_html=True)
+    df_co2 = pd.DataFrame(
+        {"CO2 (µg/s)": st.session_state.co2_history},
+        index=st.session_state.time_history
+    )
+    st.line_chart(df_co2, height=130, use_container_width=True)
 
-    # Spike indicator
+    # Spike / clean banner
     if spike_detected:
-        st.markdown(
-            f'<div style="background:#fff3cd;border-left:4px solid #ffc107;'
-            f'padding:0.6rem 1rem;border-radius:4px;margin-top:0.5rem;">'
-            f'<strong>SPIKE DETECTED</strong> — {power:.0f}W ({delta_pct:+.1f}% above baseline) '
-            f'— Pattern matching running...</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f"""
+        <div class="alert-warn">
+          <div class="alert-text">
+            <strong>POWER SPIKE DETECTED</strong> — {power:.0f}W ({delta_pct:+.1f}% above {baseline_power:.0f}W baseline)
+          </div>
+          <div class="alert-action" style="color:#F5A623">Pattern matching running...</div>
+        </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(
-            '<div style="background:#d1e7dd;border-left:4px solid #198754;'
-            'padding:0.6rem 1rem;border-radius:4px;margin-top:0.5rem;">'
-            'Carbon footprint within normal range</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown("""
+        <div class="alert-ok">
+          <div class="alert-text"><strong>NORMAL</strong> — Carbon footprint within expected range</div>
+        </div>""", unsafe_allow_html=True)
+
+    # Alert log
+    if st.session_state.alert_log:
+        st.markdown('<div class="panel-title" style="margin-top:16px">Alert Log</div>',
+                    unsafe_allow_html=True)
+        rows = []
+        for a in reversed(st.session_state.alert_log[-8:]):
+            rows.append({
+                "Time": a["time"],
+                "Verdict": a["verdict"],
+                "Score": a["score"],
+                "Type": a["type"],
+                "Action": a["action"][:55] + "..." if len(a["action"]) > 55 else a["action"],
+            })
+        df_log = pd.DataFrame(rows)
+        st.dataframe(df_log, use_container_width=True, hide_index=True)
 
 with right:
-    st.markdown("**Active Security Signals**")
-
+    # Active signals
+    st.markdown('<div class="panel-title">Security Signals</div>', unsafe_allow_html=True)
     all_signals = [
         "power_spike_sustained", "power_spike_brief", "idle_drain",
         "new_process_spawned", "high_gpu_util_unexpected", "no_training_activity",
-        "network_outbound_unknown", "low_gpu_util_high_power", "file_access_anomaly",
-        "inference_latency_spike", "high_confidence_anomaly", "model_weight_modified",
+        "network_outbound_unknown", "low_gpu_util_high_power",
+        "inference_latency_spike", "high_confidence_anomaly",
         "high_frequency_probing", "systematic_input_patterns",
+        "model_weight_modified", "file_access_anomaly",
     ]
-
-    sig_col1, sig_col2 = st.columns(2)
-    for i, sig in enumerate(all_signals):
+    pills_html = ""
+    for sig in all_signals:
         active = sig in active_signals
-        css = "signal-active" if active else "signal-clear"
-        icon = "ACTIVE" if active else "clear"
-        col = sig_col1 if i % 2 == 0 else sig_col2
-        with col:
-            st.markdown(
-                f'<div class="{css}">{sig.replace("_", " ")}<br>'
-                f'<span style="font-size:0.7rem;font-weight:700;">{icon}</span></div>',
-                unsafe_allow_html=True
-            )
+        css = "sig-active" if active else "sig-clear"
+        pills_html += f'<span class="{css}">{sig.replace("_", " ")}</span>'
+    st.markdown(f'<div style="line-height:2">{pills_html}</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("**Pattern Match Result**")
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+
+    # Pattern match verdict
+    st.markdown('<div class="panel-title">Pattern Match Verdict</div>', unsafe_allow_html=True)
 
     if match_result:
+        score = match_result.threat_score
+        score_color = "#FF5C5C" if score >= 80 else "#F5A623" if score >= 50 else "#00C896"
         css = f"verdict-{match_result.verdict.lower()}"
-        score_color = "#dc3545" if match_result.threat_score >= 80 else \
-                      "#fd7e14" if match_result.threat_score >= 50 else "#198754"
+
+        # MITRE tags
+        mitre_map = {
+            "cryptominer":        ["AML.T0011"],
+            "data_exfiltration":  ["AML.T0024"],
+            "backdoor_trigger":   ["AML.T0043"],
+            "model_theft":        ["AML.T0044"],
+        }
+        mitre_tags = "".join(
+            f'<span class="mitre-tag">{t}</span>'
+            for t in mitre_map.get(match_result.attack_type or "", [])
+        )
+
+        evidence_html = "<br>".join(
+            f"&nbsp;&nbsp;• {e}" for e in match_result.evidence[:6]
+        )
 
         st.markdown(f"""
         <div class="{css}">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:1.2rem;font-weight:800;">{match_result.verdict}</span>
-                <span style="font-size:0.85rem;color:{score_color};font-weight:700;">
-                    Threat score: {match_result.threat_score}/100
-                </span>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div class="verdict-title">{match_result.verdict}</div>
+            <div style="text-align:right">
+              <div style="font-size:1.1rem;font-weight:800;color:{score_color}">{score}/100</div>
+              <div style="font-size:0.68rem;color:#8B949E">threat score</div>
             </div>
-            <div class="score-bar-bg">
-                <div style="width:{match_result.threat_score}%;background:{score_color};
-                     height:12px;border-radius:4px;"></div>
-            </div>
-            <div style="font-size:0.85rem;margin-top:0.4rem;">
-                <strong>Attack type:</strong> {match_result.attack_type or "None"}<br>
-                <strong>Confidence:</strong> {match_result.confidence_pct:.1f}%
-            </div>
-            <div style="margin-top:0.6rem;font-size:0.82rem;color:#495057;">
-                <strong>Evidence:</strong><br>
-                {"<br>".join(f"&nbsp;&nbsp;• {e}" for e in match_result.evidence)}
-            </div>
-            <div style="margin-top:0.6rem;font-size:0.82rem;font-weight:600;">
-                {match_result.recommended_action}
-            </div>
+          </div>
+          <div class="score-track">
+            <div class="score-fill" style="width:{score}%;background:{score_color}"></div>
+          </div>
+          <div style="margin:6px 0 4px">{mitre_tags}</div>
+          <div style="font-size:0.8rem;color:#8B949E;margin-bottom:6px">
+            <strong style="color:#E6EDF3">Type:</strong> {match_result.attack_type or "unknown"} &nbsp;|&nbsp;
+            <strong style="color:#E6EDF3">Confidence:</strong> {match_result.confidence_pct:.0f}%
+          </div>
+          <div class="evidence">{evidence_html}</div>
+          <div style="margin-top:8px;font-size:0.78rem;font-weight:700;color:{score_color}">
+            {match_result.recommended_action}
+          </div>
         </div>
         """, unsafe_allow_html=True)
+
     elif spike_detected:
-        st.info("Spike detected but no active security signals — likely benign (checkpoint, eval loop).")
+        st.markdown("""
+        <div class="verdict-suspicious">
+          <div class="verdict-title">INVESTIGATING</div>
+          <div style="font-size:0.82rem;color:#8B949E;margin-top:6px">
+            Spike detected — no active attack signals. Likely benign (checkpoint, eval loop).
+          </div>
+        </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(
-            '<div class="verdict-benign" style="padding:0.8rem;">'
-            '<strong>BENIGN</strong> — No spike detected. System operating normally.</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown("""
+        <div class="verdict-benign">
+          <div class="verdict-title">BENIGN</div>
+          <div style="font-size:0.82rem;color:#8B949E;margin-top:6px">
+            No anomalies detected. System operating normally.
+          </div>
+        </div>""", unsafe_allow_html=True)
 
-st.markdown("---")
+    # Recent match history
+    if st.session_state.match_results:
+        st.markdown('<div class="panel-title" style="margin-top:14px">Recent Verdicts</div>',
+                    unsafe_allow_html=True)
+        for r in reversed(st.session_state.match_results[-5:]):
+            color = "#FF5C5C" if r.verdict == "ATTACK" else "#F5A623" if r.verdict == "SUSPICIOUS" else "#00C896"
+            t = datetime.fromtimestamp(r.timestamp).strftime("%H:%M:%S")
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;'
+                f'font-size:0.78rem;padding:3px 0;border-bottom:1px solid #21262D">'
+                f'<span style="color:#8B949E">{t}</span>'
+                f'<span style="color:{color};font-weight:700">{r.verdict}</span>'
+                f'<span style="color:#8B949E">{r.attack_type or "—"}</span>'
+                f'<span style="color:{color}">{r.threat_score}/100</span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
-# ── Alert history ─────────────────────────────────────────────────────────────
-st.markdown("**Pattern Match History**")
+# ── Controls ──────────────────────────────────────────────────────────────────
+st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([1, 1, 4])
+with col1:
+    if not auto_refresh:
+        if st.button("Advance one tick"):
+            st.rerun()
+with col2:
+    if st.button("Clear alerts"):
+        st.session_state.match_results = []
+        st.session_state.alert_log = []
+        st.rerun()
 
-if st.session_state.match_results:
-    rows = []
-    for r in reversed(st.session_state.match_results[-10:]):
-        rows.append({
-            "Time": datetime.fromtimestamp(r.timestamp).strftime("%H:%M:%S"),
-            "Verdict": r.verdict,
-            "Threat Score": r.threat_score,
-            "Attack Type": r.attack_type or "—",
-            "Confidence": f"{r.confidence_pct:.1f}%",
-            "Action": r.recommended_action[:60] + "..." if len(r.recommended_action) > 60 else r.recommended_action,
-        })
-    df = pd.DataFrame(rows)
-
-    def color_verdict(val):
-        if val == "ATTACK":     return "background-color:#f8d7da;color:#58151c;font-weight:700"
-        if val == "SUSPICIOUS": return "background-color:#fff3cd;color:#664d03;font-weight:700"
-        return "background-color:#d1e7dd;color:#0a3622"
-
-    st.dataframe(
-        df.style.applymap(color_verdict, subset=["Verdict"]),
-        use_container_width=True,
-        hide_index=True,
-    )
-else:
-    st.info("No pattern match events yet. Inject an attack scenario from the sidebar to see results.")
-
-# ── Auto-refresh ──────────────────────────────────────────────────────────────
 if auto_refresh:
     time.sleep(refresh_rate)
     st.rerun()
-else:
-    if st.button("Advance one tick"):
-        st.rerun()
