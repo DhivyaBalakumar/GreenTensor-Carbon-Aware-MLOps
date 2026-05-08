@@ -12,3 +12,10 @@ test_write.txt
 .pytest_cache/
 *.egg
 MANIFEST
+
+# Stress test artifacts
+greentensor_esg_history.json
+greentensor_history.json
+stress_results.txt
+append_tests.py
+test_extraction.py

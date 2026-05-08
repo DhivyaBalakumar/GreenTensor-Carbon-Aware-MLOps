@@ -19,10 +19,10 @@ CYAN   = "\033[96m"
 BOLD   = "\033[1m"
 RESET  = "\033[0m"
 
-PASS = f"{GREEN}✓ PASS{RESET}"
-FAIL = f"{RED}✗ FAIL{RESET}"
-WARN = f"{YELLOW}⚠ WARN{RESET}"
-INFO = f"{CYAN}ℹ INFO{RESET}"
+PASS = f"{GREEN}[PASS]{RESET}"
+FAIL = f"{RED}[FAIL]{RESET}"
+WARN = f"{YELLOW}[WARN]{RESET}"
+INFO = f"{CYAN}[INFO]{RESET}"
 
 results = []
 
@@ -670,18 +670,19 @@ run_test("inference latency spike", test_inference_latency_spike)
 
 def test_model_extraction_detection():
     """High-frequency API probing should trigger model extraction alert."""
+    time.sleep(0.1)  # ensure prior scanner threads are fully stopped
     scanner = gt.DigitalFootprintScanner(
         stage="post_deployment", monitor_network=False, monitor_processes=False)
     scanner.start()
 
-    # Simulate 25 calls in rapid succession
-    for _ in range(25):
-        scanner.record_inference(latency_s=0.001)
+    # Simulate 30 calls in rapid succession (>50 calls/sec triggers alert)
+    for _ in range(30):
+        scanner.record_inference(latency_s=0.0001)
 
     report = scanner.stop()
     extraction_events = [e for e in report.events if e.signal == "high_frequency_probing"]
     check("Model extraction alert fired on rapid probing", len(extraction_events) > 0,
-          f"events={len(extraction_events)}")
+          f"events={len(extraction_events)} — total events={len(report.events)}")
     if extraction_events:
         check("MITRE = AML.T0044", extraction_events[0].mitre_technique == "AML.T0044",
               f"mitre={extraction_events[0].mitre_technique}")
@@ -784,3 +785,343 @@ def test_pattern_matcher_model_theft():
           f"type={result.attack_type}")
 
 run_test("pattern matcher model theft", test_pattern_matcher_model_theft)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 10 — ESG REPORTER
+# ══════════════════════════════════════════════════════════════════════════════
+section("10. ESG REPORTER")
+
+def test_esg_reporter_basic():
+    org = gt.ESGOrganization(name="Acme Corp", reporting_period="FY2026", region="US-East")
+    reporter = gt.ESGReporter(org)
+    m = gt.RunMetrics(duration_s=312.4, energy_kwh=0.0412, emissions_kg=0.0096)
+    reporter.record_run(m, model_name="bert-finetuned", stage="training")
+    reporter.record_run(m, model_name="resnet50", stage="training")
+    report = reporter.generate_report()
+    check("ESGReport returned", report is not None)
+    check("report has total_runs >= 2", report.total_runs >= 2, f"runs={report.total_runs}")
+    check("total_energy_kwh > 0", report.total_energy_kwh > 0, f"energy={report.total_energy_kwh:.4f} kWh")
+    check("total_emissions_kg > 0", report.total_emissions_kg > 0, f"emissions={report.total_emissions_kg:.6f} kg")
+    text = report.to_text()
+    check("to_text() returns non-empty string", len(text) > 50, text[:80])
+    check("report text contains org name", "Acme Corp" in text)
+    check("report text contains FY2026", "FY2026" in text)
+
+run_test("esg reporter basic", test_esg_reporter_basic)
+
+def test_esg_reporter_json():
+    import json, tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as hf:
+        hist_path = hf.name
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as rf:
+        report_path = rf.name
+    try:
+        org = gt.ESGOrganization(name="TestOrg", reporting_period="FY2026", region="GB")
+        reporter = gt.ESGReporter(org, history_path=hist_path)
+        m = gt.RunMetrics(duration_s=60.0, energy_kwh=0.001, emissions_kg=0.0002)
+        reporter.record_run(m, model_name="test-model", stage="inference")
+        # save_json is on ESGReporter, not ESGReport
+        reporter.save_json(report_path)
+        check("save_json() creates file", os.path.exists(report_path))
+        with open(report_path) as f:
+            data = json.load(f)
+        check("JSON is valid and parseable", True)
+        check("JSON is non-empty dict", len(data) > 0, f"keys={list(data.keys())[:5]}")
+    finally:
+        for p in (hist_path, report_path):
+            if os.path.exists(p):
+                os.unlink(p)
+
+run_test("esg reporter json", test_esg_reporter_json)
+
+def test_esg_savings_calculation():
+    baseline  = gt.RunMetrics(duration_s=100.0, energy_kwh=0.01,   emissions_kg=0.003)
+    optimized = gt.RunMetrics(duration_s=71.0,  energy_kwh=0.0071, emissions_kg=0.00213)
+    savings = gt.calculate_savings(baseline, optimized)
+    check("calculate_savings returns dict", isinstance(savings, dict))
+    check("energy_saved_kwh > 0", savings["energy_saved_kwh"] > 0,
+          f"saved={savings['energy_saved_kwh']:.6f} kWh")
+    check("energy_reduction_pct ~29%",
+          abs(savings["energy_reduction_pct"] - 29.0) < 1.0,
+          f"reduction={savings['energy_reduction_pct']:.1f}%")
+    check("time_saved_s ~29s", abs(savings["time_saved_s"] - 29.0) < 1.0,
+          f"time_saved={savings['time_saved_s']:.1f}s")
+
+run_test("esg savings calculation", test_esg_savings_calculation)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 11 — EFFICIENCY RECOMMENDER
+# ══════════════════════════════════════════════════════════════════════════════
+section("11. EFFICIENCY RECOMMENDER")
+
+def test_recommender_high_idle():
+    rec = gt.EfficiencyRecommender()
+    m = gt.RunMetrics(duration_s=100.0, energy_kwh=0.001, emissions_kg=0.0002, idle_seconds=40.0)
+    recs = rec.analyze(m)
+    check("Recommendations returned for high idle", len(recs) > 0, f"count={len(recs)}")
+    cats = [r.category for r in recs]
+    check("dataloader recommendation present", "dataloader" in cats, f"cats={cats}")
+    idle_rec = next((r for r in recs if r.category == "dataloader"), None)
+    if idle_rec:
+        check("idle rec priority = high", idle_rec.priority == "high", f"priority={idle_rec.priority}")
+        check("idle rec savings > 0", idle_rec.estimated_savings_pct > 0,
+              f"savings={idle_rec.estimated_savings_pct:.0f}%")
+
+run_test("recommender high idle", test_recommender_high_idle)
+
+def test_recommender_no_mixed_precision():
+    rec = gt.EfficiencyRecommender()
+    m = gt.RunMetrics(duration_s=60.0, energy_kwh=0.001, emissions_kg=0.0002)
+    recs = rec.analyze(m, mixed_precision_enabled=False)
+    precision_recs = [r for r in recs if r.category == "precision"]
+    check("Mixed precision recommendation fires", len(precision_recs) > 0,
+          f"recs={[r.title for r in recs]}")
+    if precision_recs:
+        check("Estimated savings ~28%",
+              abs(precision_recs[0].estimated_savings_pct - 28.0) < 1.0,
+              f"savings={precision_recs[0].estimated_savings_pct:.0f}%")
+
+run_test("recommender no mixed precision", test_recommender_no_mixed_precision)
+
+def test_recommender_small_batch():
+    rec = gt.EfficiencyRecommender()
+    m = gt.RunMetrics(duration_s=60.0, energy_kwh=0.001, emissions_kg=0.0002)
+    recs = rec.analyze(m, batch_size=8)
+    batch_recs = [r for r in recs if r.category == "batch_size"]
+    check("Batch size recommendation fires for batch=8", len(batch_recs) > 0,
+          f"recs={[r.title for r in recs]}")
+    if batch_recs:
+        check("Batch rec priority = high", batch_recs[0].priority == "high",
+              f"priority={batch_recs[0].priority}")
+
+run_test("recommender small batch", test_recommender_small_batch)
+
+def test_recommender_priority_ordering():
+    rec = gt.EfficiencyRecommender()
+    m = gt.RunMetrics(duration_s=100.0, energy_kwh=0.001, emissions_kg=0.0002, idle_seconds=35.0)
+    recs = rec.analyze(m, mixed_precision_enabled=False, batch_size=4, gpu_util_avg_pct=30.0)
+    check("Multiple recommendations returned", len(recs) >= 3, f"count={len(recs)}")
+    priorities = [r.priority for r in recs]
+    order = {"high": 0, "medium": 1, "low": 2}
+    is_sorted = all(order[priorities[i]] <= order[priorities[i+1]] for i in range(len(priorities)-1))
+    check("Recommendations sorted high->medium->low", is_sorted, f"order={priorities}")
+
+run_test("recommender priority ordering", test_recommender_priority_ordering)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 12 — DATACENTER CONFIG & RUN METRICS
+# ══════════════════════════════════════════════════════════════════════════════
+section("12. DATACENTER CONFIG & RUN METRICS")
+
+def test_pue_presets():
+    check("PUE_PRESETS dict non-empty", len(gt.PUE_PRESETS) > 0)
+    check("hyperscale PUE = 1.1", gt.PUE_PRESETS["hyperscale"] == 1.1)
+    check("cloud_average PUE = 1.2", gt.PUE_PRESETS["cloud_average"] == 1.2)
+    check("legacy_dc PUE = 1.8", gt.PUE_PRESETS["legacy_dc"] == 1.8)
+
+run_test("pue presets", test_pue_presets)
+
+def test_datacenter_config_scaling():
+    m = gt.RunMetrics(duration_s=100.0, energy_kwh=1.0, emissions_kg=0.233)
+    dc = gt.DatacenterConfig(pue=1.5, carbon_intensity_kg_per_kwh=0.000233, num_nodes=2)
+    m2 = m.apply_datacenter_config(dc)
+    check("apply_datacenter_config returns RunMetrics", isinstance(m2, gt.RunMetrics))
+    check("energy_kwh_dc = energy * PUE * nodes = 3.0",
+          abs(m2.energy_kwh_dc - 3.0) < 1e-9, f"energy_dc={m2.energy_kwh_dc:.4f} kWh")
+    check("emissions_kg_dc = energy_dc * intensity",
+          abs(m2.emissions_kg_dc - 3.0 * 0.000233) < 1e-9,
+          f"emissions_dc={m2.emissions_kg_dc:.6f} kg")
+    check("original energy_kwh unchanged", m2.energy_kwh == 1.0)
+    check("dc_config stored on result", m2.dc_config is dc)
+
+run_test("datacenter config scaling", test_datacenter_config_scaling)
+
+def test_calculate_savings_dc_adjusted():
+    baseline  = gt.RunMetrics(duration_s=100.0, energy_kwh=1.0,  emissions_kg=0.233)
+    optimized = gt.RunMetrics(duration_s=71.0,  energy_kwh=0.71, emissions_kg=0.165)
+    dc = gt.DatacenterConfig(pue=1.2, carbon_intensity_kg_per_kwh=0.000233, num_nodes=1)
+    b2 = baseline.apply_datacenter_config(dc)
+    o2 = optimized.apply_datacenter_config(dc)
+    savings = gt.calculate_savings(b2, o2, use_dc_adjusted=True)
+    check("DC-adjusted savings flag set", savings["dc_adjusted"] == True)
+    check("DC-adjusted energy_saved > raw energy_saved",
+          savings["energy_saved_kwh"] > (1.0 - 0.71),
+          f"dc_saved={savings['energy_saved_kwh']:.4f} vs raw={1.0-0.71:.4f}")
+
+run_test("calculate savings dc adjusted", test_calculate_savings_dc_adjusted)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 13 — RUN HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+section("13. RUN HISTORY")
+
+def test_run_history_record_and_retrieve():
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_path = f.name
+    try:
+        history = gt.RunHistory(path=tmp_path)
+        for i in range(5):
+            m = gt.RunMetrics(duration_s=float(10+i), energy_kwh=0.001*(i+1), emissions_kg=0.0002*(i+1))
+            history.record(m, model_name=f"model-{i}", stage="training")
+        last3 = history.last(3)
+        check("last(3) returns 3 entries", len(last3) == 3, f"got {len(last3)}")
+        all5 = history.last(10)
+        check("last(10) returns all 5 entries", len(all5) == 5, f"got {len(all5)}")
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+run_test("run history record and retrieve", test_run_history_record_and_retrieve)
+
+def test_run_history_empty():
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_path = f.name
+    os.unlink(tmp_path)  # ensure file doesn't exist so history starts empty
+    history = gt.RunHistory(path=tmp_path)
+    last = history.last(5)
+    check("last() on empty history returns list", isinstance(last, list))
+    check("last() on empty history returns empty", len(last) == 0, f"got {len(last)}")
+
+run_test("run history empty", test_run_history_empty)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 14 — PROFILER
+# ══════════════════════════════════════════════════════════════════════════════
+section("14. PROFILER")
+
+def test_profiler_get_gpu_metrics():
+    from greentensor.core.profiler import Profiler
+    metrics = Profiler.get_gpu_metrics()
+    check("get_gpu_metrics returns dict", isinstance(metrics, dict))
+    check("dict has util_% key", "util_%" in metrics, f"keys={list(metrics.keys())}")
+    check("dict has power_W key", "power_W" in metrics)
+    check("util_% is float >= 0", isinstance(metrics["util_%"], float) and metrics["util_%"] >= 0,
+          f"util={metrics['util_%']}")
+    check("power_W is float >= 0", isinstance(metrics["power_W"], float) and metrics["power_W"] >= 0,
+          f"power={metrics['power_W']}W")
+    if metrics["power_W"] == 0.0:
+        check("power_W=0 (no GPU/nvidia-smi — expected on CPU-only)", True,
+              "nvidia-smi not found — fallback to 0W", warn=True)
+
+run_test("profiler gpu metrics", test_profiler_get_gpu_metrics)
+
+def test_profiler_estimate_energy():
+    from greentensor.core.profiler import Profiler
+    kwh = Profiler.estimate_energy_kwh(power_w=200.0, duration_s=3600.0)
+    check("estimate_energy_kwh(200W, 3600s) = 0.2 kWh", abs(kwh - 0.2) < 1e-9,
+          f"got={kwh:.6f} kWh")
+    kwh0 = Profiler.estimate_energy_kwh(power_w=0.0, duration_s=100.0)
+    check("estimate_energy_kwh(0W) = 0", kwh0 == 0.0)
+
+run_test("profiler estimate energy", test_profiler_estimate_energy)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 15 — FULL END-TO-END REALISTIC SCENARIO
+# ══════════════════════════════════════════════════════════════════════════════
+section("15. FULL END-TO-END REALISTIC SCENARIO")
+
+def test_full_pipeline():
+    import io, contextlib
+    baseline_m = gt.RunMetrics(duration_s=60.0, energy_kwh=0.0006, emissions_kg=0.00014)
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        with gt.GreenTensor(
+            verbose=True, security=False, save_path=None, baseline=baseline_m,
+        ) as g:
+            data = [math.sin(i) * math.cos(i) for i in range(500_000)]
+            result = sum(data)
+
+    check("E2E: context manager completes", True, f"workload result={result:.4f}")
+    check("E2E: metrics populated", g.metrics is not None)
+    m = g.metrics
+    check("E2E: duration > 0", m.duration_s > 0, f"duration={m.duration_s:.3f}s")
+    check("E2E: energy >= 0", m.energy_kwh >= 0, f"energy={m.energy_kwh:.8f} kWh")
+    report_text = buf.getvalue()
+    check("E2E: report printed", "GreenTensor Report" in report_text)
+    check("E2E: baseline comparison shown", "Baseline" in report_text)
+
+    m_water = m.apply_aquatensor_config(gt.AquaTensorConfig(
+        provider="google", region="India",
+        aquatensor_installed=True, whr_ratio=0.65, feed_temperature_c=65.0))
+    check("E2E: water metrics applied", m_water.water is not None)
+    check("E2E: water stress label set", len(m_water.water.water_stress_label) > 0,
+          f"label={m_water.water.water_stress_label}")
+
+    m_dc = m.apply_datacenter_config(
+        gt.DatacenterConfig(pue=1.2, carbon_intensity_kg_per_kwh=0.000233, num_nodes=1))
+    check("E2E: DC config applied", m_dc.energy_kwh_dc is not None)
+    check("E2E: DC energy >= raw energy", m_dc.energy_kwh_dc >= m_dc.energy_kwh)
+
+    org = gt.ESGOrganization(name="E2E Corp", reporting_period="FY2026", region="US-East")
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as hf:
+        esg_hist = hf.name
+    reporter = gt.ESGReporter(org, history_path=esg_hist)
+    reporter.record_run(m, model_name="e2e-model", stage="training")
+    esg = reporter.generate_report()
+    check("E2E: ESG report generated", esg is not None)
+    check("E2E: ESG total_runs = 1", esg.total_runs == 1, f"got {esg.total_runs}")
+    if os.path.exists(esg_hist):
+        os.unlink(esg_hist)
+
+    recs = gt.EfficiencyRecommender().analyze(
+        m, mixed_precision_enabled=False, batch_size=16, gpu_util_avg_pct=40.0)
+    check("E2E: recommendations produced", len(recs) > 0, f"count={len(recs)}")
+
+    sched = gt.CarbonAwareScheduler(zone="GB")
+    rec = sched.should_run_now(estimated_energy_kwh=max(m.energy_kwh, 0.001))
+    check("E2E: scheduler recommendation returned", isinstance(rec, gt.ScheduleRecommendation))
+    check("E2E: scheduler reason non-empty", len(rec.reason) > 10)
+
+    matcher = gt.PatternMatcher()
+    match = matcher.match(
+        power_w=250.0, baseline_power_w=100.0, gpu_util_pct=95.0,
+        active_signals=["power_spike_sustained", "new_process_spawned",
+                        "high_gpu_util_unexpected", "no_training_activity"])
+    check("E2E: pattern matcher returns result", isinstance(match, gt.PatternMatchResult))
+    check("E2E: cryptominer attack detected", match.verdict == "ATTACK",
+          f"verdict={match.verdict}, score={match.threat_score}")
+
+run_test("full end-to-end pipeline", test_full_pipeline)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FINAL SUMMARY
+# ══════════════════════════════════════════════════════════════════════════════
+section("STRESS TEST SUMMARY")
+
+total  = len(results)
+passed = sum(1 for _, s in results if s == "pass")
+failed = sum(1 for _, s in results if s == "fail")
+warned = sum(1 for _, s in results if s == "warn")
+
+print(f"\n  Total checks : {total}")
+print(f"  {GREEN}Passed       : {passed}{RESET}")
+print(f"  {YELLOW}Warnings     : {warned}{RESET}")
+print(f"  {RED}Failed       : {failed}{RESET}")
+
+if failed > 0:
+    print(f"\n  {RED}{BOLD}FAILED CHECKS:{RESET}")
+    for name, status in results:
+        if status == "fail":
+            print(f"    {RED}[x]{RESET}  {name}")
+
+if warned > 0:
+    print(f"\n  {YELLOW}WARNINGS (expected on CPU-only / no GPU):{RESET}")
+    for name, status in results:
+        if status == "warn":
+            print(f"    {YELLOW}[!]{RESET}  {name}")
+
+score_pct = (passed / total * 100) if total > 0 else 0
+print(f"\n  Score: {passed}/{total} ({score_pct:.1f}%)")
+
+if failed == 0:
+    print(f"\n  {GREEN}{BOLD}ALL CHECKS PASSED — GreenTensor middleware is working correctly.{RESET}\n")
+elif failed <= 3:
+    print(f"\n  {YELLOW}{BOLD}MOSTLY PASSING — {failed} check(s) need attention.{RESET}\n")
+else:
+    print(f"\n  {RED}{BOLD}{failed} FAILURES — middleware has real issues that need fixing.{RESET}\n")
+
+sys.exit(0 if failed == 0 else 1)
