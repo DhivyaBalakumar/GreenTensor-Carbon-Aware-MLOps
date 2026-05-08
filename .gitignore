@@ -1,8 +1,14 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 *.egg-info/
 dist/
 build/
 *.pkl
 .env
+*.txt.bak
+test_write.txt
+.pytest_cache/
+*.egg
+MANIFEST
