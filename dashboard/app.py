@@ -2,6 +2,7 @@ import streamlit as st
 import pickle
 import json
 import os
+import time as _time
 import pandas as pd
 from greentensor.report.metrics import (
     RunMetrics, calculate_savings, DatacenterConfig, PUE_PRESETS
@@ -9,7 +10,6 @@ from greentensor.report.metrics import (
 from greentensor.report.esg import ESGReporter, ESGOrganization, ESGRunRecord
 from greentensor.core.history import RunHistory
 from greentensor.water.aquatensor import AquaTensorBridge, AquaTensorConfig, PROVIDER_WUE, REGIONAL_WATER_STRESS
-import time as _time
 
 st.set_page_config(
     page_title="GreenTensor Dashboard",
@@ -121,22 +121,6 @@ def kpi(label, value, delta=None, good=True, neutral=False):
     </div>""", unsafe_allow_html=True)
 
 
-def load_metrics_file(file):
-    name = file.name.lower()
-    if name.endswith(".pkl"):
-        return pickle.load(file)
-    elif name.endswith(".json"):
-        data = json.load(file)
-        return RunMetrics(
-            duration_s=float(data["duration_s"]),
-            energy_kwh=float(data["energy_kwh"]),
-            emissions_kg=float(data["emissions_kg"]),
-            idle_seconds=float(data.get("idle_seconds", 0.0)),
-        )
-    st.error(f"Unsupported file: {name}. Use .pkl or .json")
-    return None
-
-
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🌿 GreenTensor")
@@ -144,78 +128,64 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio("Navigation", [
         "Overview", "Energy Analysis", "Water Intelligence",
-        "Datacenter Impact", "ESG Report", "Run History",
+        "Datacenter Impact", "Efficiency Metrics", "ESG Report", "Run History",
         "Security Report", "How It Works",
     ])
     st.markdown("---")
-    mode = st.radio("Data source", ["Manual Input", "Upload File"])
+    if st.button("🔄 Refresh data"):
+        st.rerun()
     st.markdown("---")
     st.markdown("Built by Dhivya Balakumar")
     st.markdown("[GitHub](https://github.com/DhivyaBalakumar/GreenTensor-Carbon-Aware-MLOps) · MIT License")
 
 
-# ── Data input ────────────────────────────────────────────────────────────────
-baseline_metrics = None
-optimized_metrics = None
-security_alerts = []
+# ── Live data from RunHistory ─────────────────────────────────────────────────
+# Reads greentensor_history.json written automatically by GreenTensor.__exit__
+# No upload or manual input needed — just run your training code.
 
-if mode == "Manual Input":
-    with st.expander("Enter run metrics", expanded=False):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Baseline** (without GreenTensor)")
-            b_dur = st.number_input("Duration (s)", key="b_d", min_value=0.0, value=60.0)
-            b_e   = st.number_input("Energy (kWh)", key="b_e", min_value=0.0, value=0.00058, format="%.6f")
-            b_em  = st.number_input("Emissions (kg CO2)", key="b_em", min_value=0.0, value=0.000135, format="%.6f")
-        with col2:
-            st.markdown("**Optimized** (with GreenTensor)")
-            o_dur = st.number_input("Duration (s)", key="o_d", min_value=0.0, value=45.0)
-            o_e   = st.number_input("Energy (kWh)", key="o_e", min_value=0.0, value=0.000412, format="%.6f")
-            o_em  = st.number_input("Emissions (kg CO2)", key="o_em", min_value=0.0, value=0.000096, format="%.6f")
-        if b_e > 0 and o_e > 0:
-            baseline_metrics  = RunMetrics(duration_s=b_dur, energy_kwh=b_e,  emissions_kg=b_em)
-            optimized_metrics = RunMetrics(duration_s=o_dur, energy_kwh=o_e, emissions_kg=o_em)
-else:
-    with st.expander("Upload metrics files", expanded=False):
-        st.markdown("""
-**How to generate these files:**
-```bash
-python examples/train_baseline.py   # saves baseline_metrics.pkl
-python examples/train_optimized.py  # saves optimized_metrics.pkl
-```
-Or upload a `.json` file with keys: `duration_s`, `energy_kwh`, `emissions_kg`, `idle_seconds`
-        """)
-        col1, col2 = st.columns(2)
-        with col1:
-            b_file = st.file_uploader("Baseline metrics", type=["pkl", "json"], key="b_f")
-            if b_file:
-                baseline_metrics = load_metrics_file(b_file)
-                if baseline_metrics:
-                    st.success("Baseline loaded")
-        with col2:
-            o_file = st.file_uploader("Optimized metrics", type=["pkl", "json"], key="o_f")
-            if o_file:
-                optimized_metrics = load_metrics_file(o_file)
-                if optimized_metrics:
-                    st.success("Optimized loaded")
-        if not baseline_metrics and os.path.exists("baseline_metrics.pkl"):
-            with open("baseline_metrics.pkl", "rb") as f:
-                baseline_metrics = pickle.load(f)
-            st.info("Auto-loaded baseline_metrics.pkl from current directory.")
+@st.cache_data(ttl=5)   # re-reads the file every 5 seconds
+def load_history():
+    return RunHistory().all()
+
+records = load_history()
+
+def _to_metrics(r):
+    return RunMetrics(
+        duration_s=r.get("duration_s", 0),
+        energy_kwh=r.get("energy_kwh", 0),
+        emissions_kg=r.get("emissions_kg", 0),
+        idle_seconds=r.get("idle_seconds", 0),
+    )
+
+# Derive baseline / optimized from the two most recent runs (if available).
+# Always assign the higher-energy run as baseline so savings are never negative.
+baseline_metrics  = None
+optimized_metrics = None
+security_alerts   = []
+
+if len(records) >= 2:
+    r_a = _to_metrics(records[-2])
+    r_b = _to_metrics(records[-1])
+    if r_a.energy_kwh >= r_b.energy_kwh:
+        baseline_metrics, optimized_metrics = r_a, r_b
+    else:
+        baseline_metrics, optimized_metrics = r_b, r_a
+elif len(records) == 1:
+    baseline_metrics = _to_metrics(records[-1])
 
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
 # Header shown on every page
-st.markdown("""
+st.markdown(f"""
 <div class="gt-header">
   <span class="gt-logo">🌿</span>
   <div>
     <div class="gt-title">GreenTensor</div>
     <div class="gt-subtitle">Carbon-Secure MLOps + AquaTensor Water Intelligence</div>
   </div>
-  <span class="gt-version">v0.7.1 · MIT</span>
+  <span class="gt-version">v0.7.1 · {len(records)} run{"s" if len(records) != 1 else ""} recorded · live</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -226,12 +196,19 @@ if page == "Overview":
     if not baseline_metrics:
         st.markdown("""
         <div class="info-box">
-          No data loaded. Use the sidebar to enter metrics manually or upload .pkl / .json files.<br><br>
-          <strong>Quick start:</strong> Switch to "Manual Input" — sample values are pre-filled.
+          <strong>No runs recorded yet.</strong><br><br>
+          GreenTensor automatically records every run to <code>greentensor_history.json</code>
+          the moment your training job finishes. Just run your code:<br><br>
+          <code>
+          from greentensor import GreenTensor<br><br>
+          with GreenTensor(model_name="my-model") as gt:<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;train()
+          </code><br><br>
+          The dashboard updates within 5 seconds. Hit <strong>🔄 Refresh data</strong> in the sidebar to force an immediate reload.
         </div>""", unsafe_allow_html=True)
 
     elif baseline_metrics and not optimized_metrics:
-        st.markdown("**Baseline run loaded — enter optimized run to see savings.**")
+        st.markdown("**1 run recorded — run a second job to see a before/after comparison.**")
         c1, c2, c3 = st.columns(3)
         with c1: kpi("Duration", f"{baseline_metrics.duration_s:.2f} s", neutral=True)
         with c2: kpi("Energy Used", f"{baseline_metrics.energy_kwh:.6f} kWh", neutral=True)
@@ -269,10 +246,25 @@ elif page == "Energy Analysis":
     st.markdown('<div class="section-title">Energy Analysis</div>', unsafe_allow_html=True)
 
     if not baseline_metrics:
-        st.markdown('<div class="info-box">No data loaded.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">No runs recorded yet. Run a training job — data appears here automatically.</div>', unsafe_allow_html=True)
     else:
         if optimized_metrics:
             savings = calculate_savings(baseline_metrics, optimized_metrics)
+
+            # Identify which recorded run maps to which role
+            if len(records) >= 2:
+                r_a = records[-2]; r_b = records[-1]
+                if r_a.get("energy_kwh", 0) >= r_b.get("energy_kwh", 0):
+                    base_label = f"{r_a.get('model_name','run -2')} (higher energy → baseline)"
+                    opt_label  = f"{r_b.get('model_name','run -1')} (lower energy → optimized)"
+                else:
+                    base_label = f"{r_b.get('model_name','run -1')} (higher energy → baseline)"
+                    opt_label  = f"{r_a.get('model_name','run -2')} (lower energy → optimized)"
+            else:
+                base_label, opt_label = "Baseline", "Optimized"
+
+            st.markdown(f'<div class="info-box">Comparing the two most recent runs. <strong>Baseline:</strong> {base_label} &nbsp;|&nbsp; <strong>Optimized:</strong> {opt_label}</div>', unsafe_allow_html=True)
+
             c1, c2, c3 = st.columns(3)
             with c1: kpi("Energy Reduction", f"{savings['energy_reduction_pct']:.1f}%", good=True)
             with c2: kpi("Energy Saved", f"{savings['energy_saved_kwh']:.6f} kWh", good=True)
@@ -311,8 +303,8 @@ elif page == "Energy Analysis":
             ]).set_index("Run"), use_container_width=True)
         else:
             st.bar_chart(pd.DataFrame(
-                {"Energy (kWh)": [baseline_metrics.energy_kwh]}, index=["Baseline"]))
-            st.markdown('<div class="info-box">Upload optimized metrics to see comparison.</div>',
+                {"Energy (kWh)": [baseline_metrics.energy_kwh]}, index=["Latest run"]))
+            st.markdown('<div class="info-box">Run a second training job to see a before/after comparison.</div>',
                         unsafe_allow_html=True)
 
 # ── Water Intelligence ────────────────────────────────────────────────────────
@@ -467,6 +459,227 @@ elif page == "Datacenter Impact":
             st.bar_chart(pd.DataFrame(
                 {"DC Energy (kWh)": [b_dc.energy_kwh_dc, o_dc.energy_kwh_dc]},
                 index=["Baseline (DC)", "Optimized (DC)"]))
+
+# ── Efficiency Metrics — PUE / WUE / CUE ─────────────────────────────────────
+elif page == "Efficiency Metrics":
+    st.markdown('<div class="section-title">Efficiency Metrics — PUE · WUE · CUE</div>', unsafe_allow_html=True)
+    st.markdown("""
+Three industry-standard indices tell you how efficiently your datacenter converts power, water, and carbon into useful compute.
+A **lower value is always better** for all three.
+    """)
+
+    # ── Definitions ───────────────────────────────────────────────────────────
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("""
+<div class="kpi-card">
+  <div class="kpi-label">PUE — Power Usage Effectiveness</div>
+  <div style="font-size:0.85rem; color:#E6EDF3; margin-top:6px;">
+    <strong>PUE = Total DC Power ÷ IT Equipment Power</strong><br><br>
+    Measures how much extra energy the datacenter infrastructure (cooling, lighting, UPS) consumes
+    on top of the actual compute load.<br><br>
+    <span style="color:#00C896">1.0</span> = perfect (no overhead)<br>
+    <span style="color:#F5A623">1.2</span> = hyperscale cloud average<br>
+    <span style="color:#FF5C5C">1.8+</span> = legacy / inefficient DC<br><br>
+    <em>Source: Green Grid consortium standard</em>
+  </div>
+</div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown("""
+<div class="kpi-card">
+  <div class="kpi-label">WUE — Water Usage Effectiveness</div>
+  <div style="font-size:0.85rem; color:#E6EDF3; margin-top:6px;">
+    <strong>WUE = Annual Water Usage (L) ÷ IT Equipment Energy (kWh)</strong><br><br>
+    Measures how many liters of water the datacenter evaporates for cooling per kWh of compute delivered.<br><br>
+    <span style="color:#00C896">0.26 L/kWh</span> = Meta (best-in-class)<br>
+    <span style="color:#F5A623">0.49 L/kWh</span> = Google / Microsoft<br>
+    <span style="color:#FF5C5C">1.80 L/kWh</span> = AWS / on-premise avg<br><br>
+    <em>Source: Provider sustainability reports 2023–24</em>
+  </div>
+</div>""", unsafe_allow_html=True)
+    with c3:
+        st.markdown("""
+<div class="kpi-card">
+  <div class="kpi-label">CUE — Carbon Usage Effectiveness</div>
+  <div style="font-size:0.85rem; color:#E6EDF3; margin-top:6px;">
+    <strong>CUE = Total CO₂ Emissions (kg) ÷ IT Equipment Energy (kWh)</strong><br><br>
+    Measures how many kg of CO₂ are emitted per kWh of compute — combining PUE overhead
+    with the regional grid's carbon intensity.<br><br>
+    <span style="color:#00C896">~0.000019</span> = Norway (hydro)<br>
+    <span style="color:#F5A623">~0.000280</span> = UK average<br>
+    <span style="color:#FF5C5C">~0.001224</span> = India legacy DC<br><br>
+    <em>CUE = PUE × grid carbon intensity</em>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+    # ── Interactive calculator ─────────────────────────────────────────────────
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Interactive Calculator</div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Datacenter parameters**")
+        calc_pue = st.slider("PUE", min_value=1.0, max_value=3.0, value=1.2, step=0.05,
+                             help="Power Usage Effectiveness — total DC power / IT power")
+        calc_wue_provider = st.selectbox(
+            "Cloud / DC provider (sets WUE)",
+            list(PROVIDER_WUE.keys()),
+            format_func=lambda k: f"{k}  —  WUE: {PROVIDER_WUE[k] or 'custom'} L/kWh"
+        )
+        calc_custom_wue = None
+        if calc_wue_provider == "custom":
+            calc_custom_wue = st.number_input("Custom WUE (L/kWh)", min_value=0.1, value=1.8, step=0.1)
+        calc_wue = calc_custom_wue if calc_wue_provider == "custom" else PROVIDER_WUE[calc_wue_provider]
+
+        st.markdown("**Grid carbon intensity**")
+        grid_options = {
+            "Norway (hydro)  — 0.000017 kg/kWh":  0.000017,
+            "France (nuclear) — 0.000056 kg/kWh": 0.000056,
+            "UK average       — 0.000233 kg/kWh": 0.000233,
+            "World average    — 0.000233 kg/kWh": 0.000233,
+            "USA average      — 0.000386 kg/kWh": 0.000386,
+            "Australia        — 0.000490 kg/kWh": 0.000490,
+            "India North      — 0.000680 kg/kWh": 0.000680,
+            "Poland (coal)    — 0.000635 kg/kWh": 0.000635,
+            "Custom":                              None,
+        }
+        grid_choice = st.selectbox("Grid region", list(grid_options.keys()))
+        if grid_options[grid_choice] is None:
+            calc_carbon_intensity = st.number_input(
+                "Carbon intensity (kg CO₂/kWh)", min_value=0.0, value=0.000233, format="%.6f")
+        else:
+            calc_carbon_intensity = grid_options[grid_choice]
+
+    with col2:
+        st.markdown("**Workload parameters**")
+        calc_it_energy = st.number_input(
+            "IT equipment energy (kWh) — raw GPU measurement",
+            min_value=0.0001, value=0.00058, format="%.6f",
+            help="The energy your GPU actually consumed, as measured by GreenTensor"
+        )
+        calc_num_nodes = st.number_input("Number of training nodes", min_value=1, value=1)
+
+    # ── Compute the three indices ──────────────────────────────────────────────
+    total_dc_energy  = calc_it_energy * calc_pue * calc_num_nodes
+    total_co2        = total_dc_energy * calc_carbon_intensity
+    calc_cue         = calc_pue * calc_carbon_intensity          # kg CO2 per kWh IT
+    water_consumed   = calc_it_energy * (calc_wue or 1.8)
+
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+    st.markdown("**Your datacenter efficiency indices**")
+    c1, c2, c3, c4 = st.columns(4)
+
+    # PUE rating
+    pue_label = "Excellent" if calc_pue <= 1.1 else ("Good" if calc_pue <= 1.3 else ("Average" if calc_pue <= 1.6 else "Poor"))
+    pue_good  = calc_pue <= 1.3
+    with c1:
+        kpi("PUE", f"{calc_pue:.2f}",
+            delta=f"{pue_label} — {'+' if calc_pue > 1.0 else ''}{(calc_pue - 1.0)*100:.0f}% DC overhead",
+            good=pue_good)
+
+    # WUE rating
+    wue_label = "Excellent" if (calc_wue or 99) <= 0.3 else ("Good" if (calc_wue or 99) <= 0.6 else ("Average" if (calc_wue or 99) <= 1.2 else "Poor"))
+    wue_good  = (calc_wue or 99) <= 0.6
+    with c2:
+        kpi("WUE", f"{calc_wue:.2f} L/kWh" if calc_wue else "N/A",
+            delta=f"{wue_label} — {water_consumed:.5f} L consumed",
+            good=wue_good)
+
+    # CUE rating
+    cue_label = "Excellent" if calc_cue <= 0.00006 else ("Good" if calc_cue <= 0.0003 else ("Average" if calc_cue <= 0.0006 else "Poor"))
+    cue_good  = calc_cue <= 0.0003
+    with c3:
+        kpi("CUE", f"{calc_cue:.6f} kg/kWh",
+            delta=f"{cue_label} — {total_co2:.6f} kg CO₂ total",
+            good=cue_good)
+
+    with c4:
+        kpi("DC Energy", f"{total_dc_energy:.6f} kWh",
+            delta=f"x{calc_pue:.1f} PUE × {int(calc_num_nodes)} node(s)",
+            good=False, neutral=True)
+
+    # ── Benchmark comparison table ─────────────────────────────────────────────
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+    st.markdown("**How your setup compares to industry benchmarks**")
+
+    benchmarks = [
+        ("Your setup",              calc_pue,  calc_wue or 1.8,  calc_cue),
+        ("Google hyperscale",       1.10,      0.49,             1.10 * 0.000056),
+        ("Microsoft hyperscale",    1.10,      0.49,             1.10 * 0.000233),
+        ("Meta hyperscale",         1.10,      0.26,             1.10 * 0.000233),
+        ("AWS cloud average",       1.20,      1.80,             1.20 * 0.000386),
+        ("Enterprise on-premise",   1.50,      1.80,             1.50 * 0.000490),
+        ("Legacy DC",               1.80,      1.80,             1.80 * 0.000635),
+        ("Norway ideal (hydro)",    1.10,      0.30,             1.10 * 0.000017),
+    ]
+
+    df_bench = pd.DataFrame(benchmarks, columns=["Datacenter", "PUE", "WUE (L/kWh)", "CUE (kg CO₂/kWh)"])
+    df_bench["PUE rating"]  = df_bench["PUE"].apply(
+        lambda v: "🟢 Excellent" if v <= 1.1 else ("🟡 Good" if v <= 1.3 else ("🟠 Average" if v <= 1.6 else "🔴 Poor")))
+    df_bench["WUE rating"]  = df_bench["WUE (L/kWh)"].apply(
+        lambda v: "🟢 Excellent" if v <= 0.3 else ("🟡 Good" if v <= 0.6 else ("🟠 Average" if v <= 1.2 else "🔴 Poor")))
+    df_bench["CUE rating"]  = df_bench["CUE (kg CO₂/kWh)"].apply(
+        lambda v: "🟢 Excellent" if v <= 0.00006 else ("🟡 Good" if v <= 0.0003 else ("🟠 Average" if v <= 0.0006 else "🔴 Poor")))
+    df_bench["CUE (kg CO₂/kWh)"] = df_bench["CUE (kg CO₂/kWh)"].map("{:.6f}".format)
+
+    st.dataframe(df_bench.set_index("Datacenter"), use_container_width=True)
+
+    # ── What-if: AquaTensor net water impact ──────────────────────────────────
+    st.markdown('<hr class="gt-divider">', unsafe_allow_html=True)
+    st.markdown("**WUE improvement with AquaTensor installed**")
+    st.markdown(
+        "AquaTensor's membrane distillation recovers waste heat and produces fresh water, "
+        "effectively reducing your net WUE below zero (net water positive)."
+    )
+
+    aq_region = st.selectbox("Region (water stress context)", list(REGIONAL_WATER_STRESS.keys()), key="aq_region_eff")
+    aq_whr    = st.slider("Waste Heat Recovery ratio", 0.1, 1.0, 0.65, 0.05, key="aq_whr_eff")
+    aq_temp   = st.slider("Feed temperature (°C)", 40, 80, 60, key="aq_temp_eff")
+
+    aq_config_eff = AquaTensorConfig(
+        provider=calc_wue_provider,
+        custom_wue=calc_custom_wue,
+        region=aq_region,
+        aquatensor_installed=True,
+        whr_ratio=aq_whr,
+        feed_temperature_c=float(aq_temp),
+    )
+    bridge_eff = AquaTensorBridge(aq_config_eff)
+    water_eff  = bridge_eff.calculate_water_metrics(calc_it_energy, 60.0)
+
+    net_wue = water_eff.net_water_impact_liters / calc_it_energy if calc_it_energy > 0 else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        kpi("WUE (without AquaTensor)", f"{calc_wue:.2f} L/kWh" if calc_wue else "N/A",
+            delta="traditional cooling", good=False)
+    with c2:
+        kpi("Water Produced", f"{water_eff.water_produced_liters:.5f} L",
+            delta=f"MD @ {aq_temp}°C, {aq_whr*100:.0f}% WHR", good=True)
+    with c3:
+        kpi("Net WUE (with AquaTensor)",
+            f"{net_wue:.4f} L/kWh",
+            delta="NET POSITIVE ✓" if net_wue < 0 else "net negative",
+            good=(net_wue < 0))
+    with c4:
+        kpi("Water Stress", f"{water_eff.water_stress_index}/5.0",
+            delta=water_eff.water_stress_label,
+            good=(water_eff.water_stress_index < 2.5),
+            neutral=(water_eff.water_stress_index < 2.5))
+
+    st.markdown(f"""
+<div class="info-box">
+  <strong>Reading your indices:</strong><br>
+  PUE <strong>{calc_pue:.2f}</strong> means for every 1 kWh your GPU uses,
+  your datacenter consumes <strong>{calc_pue:.2f} kWh</strong> total
+  ({(calc_pue-1)*100:.0f}% goes to cooling and infrastructure).<br><br>
+  WUE <strong>{calc_wue:.2f} L/kWh</strong> means this job evaporated
+  <strong>{water_consumed:.5f} L</strong> of fresh water for cooling.<br><br>
+  CUE <strong>{calc_cue:.6f} kg CO₂/kWh</strong> means every kWh of GPU compute
+  ultimately emits <strong>{calc_cue:.6f} kg CO₂</strong> when DC overhead and grid intensity are included.
+</div>
+""", unsafe_allow_html=True)
 
 # ── ESG Report ────────────────────────────────────────────────────────────────
 elif page == "ESG Report":

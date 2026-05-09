@@ -27,17 +27,20 @@ class GreenTensor:
                  monitor_network=True,
                  monitor_processes=True,
                  trusted_hosts=None,
-                 carbon_budget=None):
+                 carbon_budget=None,
+                 model_name="unknown"):
         self.config = config or Config()
         self.baseline = baseline
         self.verbose = verbose
         self.save_path = save_path
         self.carbon_budget = carbon_budget
+        self.model_name = model_name
         self.tracker = Tracker(self.config)
         self.gpu_optimizer = GPUOptimizer(self.config)
         self.idle_optimizer = IdleOptimizer(self.config)
         self.metrics = None
         self._security_enabled = security
+        self._stage = stage
         self.anomaly_detector = AnomalyDetector(
             config=security_config or AnomalyDetectorConfig(),
             on_alert=on_alert,
@@ -83,6 +86,7 @@ class GreenTensor:
         if self.carbon_budget:
             self.carbon_budget.check(emissions_kg, energy_kwh)
 
+        # Save .pkl snapshot
         if self.save_path:
             try:
                 with open(self.save_path, "wb") as f:
@@ -90,6 +94,22 @@ class GreenTensor:
                 logger.info(f"Metrics saved to {self.save_path}")
             except Exception as e:
                 logger.warning(f"Could not save metrics: {e}")
+
+        # Auto-record to RunHistory so the dashboard picks it up immediately
+        try:
+            from greentensor.core.history import RunHistory
+            RunHistory().record(
+                self.metrics,
+                model_name=self.model_name,
+                stage=self._stage,
+                tags={
+                    "security_alerts": len(alerts),
+                    "save_path": self.save_path or "",
+                },
+            )
+            logger.info("Run auto-recorded to RunHistory for dashboard.")
+        except Exception as e:
+            logger.debug(f"Auto-history record skipped: {e}")
 
         if self.verbose:
             report = generate_report(
