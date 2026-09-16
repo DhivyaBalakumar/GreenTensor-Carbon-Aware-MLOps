@@ -34,7 +34,7 @@ from greentensor.scheduler.carbon_scheduler import (
 from greentensor.utils.config import Config
 from greentensor.utils.logger import get_logger
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 __author__ = "Dhivya Balakumar"
 
 __all__ = [
